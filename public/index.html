@@ -10,10 +10,14 @@ textarea,input{width:100%;box-sizing:border-box;margin:4px 0;padding:8px}textare
 function add(t,c){const d=document.createElement('div');d.className=c||'';d.textContent=t;log.append(d)}
 async function post(u,b){return fetch(u,{method:'POST',headers:{'content-type':'application/json',...(tok?{authorization:'Bearer '+tok}:{})},body:JSON.stringify(b)}).then(r=>r.json())}
 async function a(k){const r=await post('/auth/'+k,{email:e.value,password:p.value});
-if(r.token){tok=r.token;auth.hidden=true;chat.hidden=false}else ae.textContent=r.error||'Masla aaya'}
+if(r.token){tok=r.token;auth.hidden=true;chat.hidden=false;fu()}else ae.textContent=r.error||'Masla aaya'}
 async function s(){const el=document.getElementById('m'),m=el.value.trim();if(!m)return;el.value='';add(m,'me');
 const r=sid?await post('/api/consult/answer',{sessionId:sid,answer:m}):await post('/api/consult/start',{message:m});
 if(r.status==='question'){sid=r.sessionId;add(r.question)}
 else if(r.status==='emergency'){sid=null;add(r.reply,'em')}
 else if(r.status==='assessment'){sid=null;const x=r.assessment;add('Khulasa:\n'+JSON.stringify(x.reportedFacts,null,1)+'\n\n'+x.uncertainty+'\n\nAgla qadam: '+x.recommendedNextStep+'\n\n'+x.followUp+'\n\n'+r.disclaimer)}
-else add(r.error||'Masla aaya')}</script></body></html>
+else add(r.error||'Masla aaya')}async function fu(){const r=await fetch('/api/followups/due',{headers:{authorization:'Bearer '+tok}}).then(r=>r.json());if(!Array.isArray(r)||!r.length)return;
+const f=r[0];add('Follow-up: pichli baar ke baad aap ki takleef kaisi hai?');
+for(const [k,t] of [['improved','Behtar'],['same','Waisi hi'],['worse','Zyada'],['new_symptoms','Naye symptoms']]){const b=document.createElement('button');b.textContent=t;
+b.onclick=async()=>{const x=await post('/api/followups/'+f.id+'/respond',{outcome:k});add(x.reply||x.error,x.escalation==='emergency'?'em':'')};log.append(b)}}
+</script></body></html>

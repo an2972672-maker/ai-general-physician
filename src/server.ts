@@ -5,6 +5,7 @@ import { checkMedication } from "./medication/engine.js";
 import { hashPassword, verifyPassword, signToken, verifyToken } from "./auth/auth.js";
 import { pool } from "./db/pool.js";
 import { audit } from "./audit/audit.js";
+import { followupRouter, saveConsultationWithFollowup } from "./followup/routes.js";
 
 const app = express();
 app.use(express.json({ limit: "1mb" }));
@@ -42,6 +43,7 @@ app.use("/api", (q, r, next) => {
 });
 const uid = (r: Response) => r.locals.userId as string;
 
+app.use("/api/followups", followupRouter);
 app.get("/api/me", (_q, r) => void r.json({ id: uid(r) }));
 app.post("/api/consult", async (q: Request, r) => {
   const msg = String(q.body?.message ?? "").slice(0, 4000);
@@ -56,11 +58,7 @@ app.post("/api/consult/start", (q, r) => {
 });
 app.post("/api/consult/answer", async (q, r) => {
   const out = answerConsult(uid(r), String(q.body?.sessionId ?? ""), String(q.body?.answer ?? ""));
-  if (out.status === "assessment" && pool) {
-    try { await pool.query("INSERT INTO consultations(user_id, structured_symptoms, risk_level, assessment) VALUES($1,$2,$3,$4)",
-      [uid(r), out.assessment.reportedFacts, out.assessment.risk, out.assessment]); }
-    catch { console.error("consultation save failed"); }
-  }
+  if (out.status === "assessment") await saveConsultationWithFollowup(uid(r), out.assessment);
   r.json(out);
 });
 app.get("/api/consultations", async (_q, r) => {
