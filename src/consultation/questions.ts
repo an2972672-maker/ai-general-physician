@@ -1,49 +1,41 @@
-// Adaptive structured questioning (Spec §5). Deterministic: which question comes next is
-// decided by rules, not by the LLM. No diagnosis is produced here.
+// Adaptive structured questioning (Spec §5), multilingual. Deterministic; no diagnosis produced here.
+import { t, type Key, type Lang } from "../i18n/messages.js";
+import { suggest } from "../referral/referral.js";
 export type Slot = "onset" | "duration" | "severity" | "location" | "associated" | "pregnancy" | "history" | "allergies" | "medicines";
 export interface Profile { sex?: "male" | "female"; ageYears?: number }
-export interface Session { id: string; userId: string; complaint: string; profile: Profile; answers: Partial<Record<Slot, string>>; asked: Slot[] }
+export interface Session { id: string; userId: string; lang: Lang; complaint: string; profile: Profile; answers: Partial<Record<Slot, string>>; asked: Slot[] }
 
-export const QUESTIONS: Record<Slot, string> = {
-  onset: "Yeh takleef kab shuru hui?",
-  duration: "Ab tak kitne arse se hai, aur kya lagataar hai ya aati jaati hai?",
-  severity: "Takleef kitni shadeed hai? 1 (halki) se 10 (sab se zyada) mein number batayein.",
-  location: "Takleef jism ke kis hisse mein hai?",
-  associated: "Is ke saath aur koi symptoms hain? (jaise bukhar, ulti, chakkar, khansi). Na hon to 'nahi' likhein.",
-  pregnancy: "Kya aap hamla (pregnant) hain ya ho sakti hain?",
-  history: "Kya aap ko pehle se koi bimari hai (jaise sugar, BP, dil, gurde, jigar)? Na ho to 'nahi'.",
-  allergies: "Kisi dawai ya cheez se allergy hai? Na ho to 'nahi'.",
-  medicines: "Abhi koi dawai istemal kar rahe hain? Na ho to 'nahi'.",
-};
+export const questionText = (lang: Lang, slot: Slot) => t(lang, `q_${slot}` as Key);
+const SYSTEMIC = /fever|bukhar|cough|khansi|thakan|fatigue|weakness|kamzori|cold|zukam|بخار|کھانسی|تھکن|کمزوری|بुखار|बुखार|खांसी|खाँसी|थकान|कमज़ोरी/i;
 
-const SYSTEMIC = /fever|bukhar|cough|khansi|thakan|fatigue|weakness|kamzori|cold|zukam/i;
+export function normalizeDigits(s: string): string {
+  return s.replace(/[\u0660-\u0669\u06F0-\u06F9\u0966-\u096F]/g, ch => {
+    const c = ch.charCodeAt(0);
+    return String(c - (c >= 0x966 && c <= 0x96f ? 0x966 : c >= 0x6f0 ? 0x6f0 : 0x660));
+  });
+}
+export const parseSeverity = (s: string) => parseInt(normalizeDigits(s), 10);
 
-// Which slots apply to this session (adaptive rules).
 export function applicableSlots(s: Pick<Session, "complaint" | "profile">): Slot[] {
   const slots: Slot[] = ["onset", "duration", "severity"];
-  if (!SYSTEMIC.test(s.complaint)) slots.push("location");        // location irrelevant for systemic complaints
+  if (!SYSTEMIC.test(s.complaint)) slots.push("location");
   slots.push("associated");
-  if (s.profile.sex === "female" && (s.profile.ageYears ?? 25) >= 12 && (s.profile.ageYears ?? 25) <= 55) slots.push("pregnancy");
+  const age = s.profile.ageYears ?? 25;
+  if (s.profile.sex === "female" && age >= 12 && age <= 55) slots.push("pregnancy");
   slots.push("history", "allergies", "medicines");
   return slots;
 }
-
-export function nextSlot(s: Session): Slot | null {
-  return applicableSlots(s).find(sl => s.answers[sl] === undefined) ?? null;
-}
+export const nextSlot = (s: Session): Slot | null => applicableSlots(s).find(sl => s.answers[sl] === undefined) ?? null;
 
 export function buildAssessment(s: Session, redFlagLabels: string[]) {
-  const sev = parseInt(s.answers.severity ?? "", 10);
-  const risk = redFlagLabels.length || sev >= 9 ? "urgent" : "routine";
+  const L = s.lang, risk = redFlagLabels.length || parseSeverity(s.answers.severity ?? "") >= 9 ? "urgent" : "routine";
+  const sg = suggest([s.complaint, ...Object.values(s.answers)].join(" "), L);
   return {
     reportedFacts: { complaint: s.complaint, ...s.answers },
-    possibleExplanations: [] as string[], // TODO Phase 6: filled from RAG with citations, never from LLM alone
-    uncertainty: "Yeh diagnosis nahi hai. Sirf aap ki batayi hui maloomat ka khulasa hai, aur doctor ke muaaynay ke baghair asal wajah tay nahi ho sakti.",
-    risk,
-    recommendedNextStep: risk === "urgent"
-      ? "Jald az jald kisi doctor se rujoo karein."
-      : "Agar takleef barhe, theek na ho, ya naye symptoms aayein to doctor se rujoo karein.",
-    warningSigns: ["Seene mein shadeed dard", "Saans lene mein shadeed mushkil", "Behoshi ya daura", "Bohat zyada khoon bahna"],
-    followUp: "Aap se baad mein poochha jayega ke takleef behtar hui, waisi hi rahi, ya barh gayi.",
+    possibleExplanations: [] as string[], // TODO Phase 6: from RAG with citations, never from LLM alone
+    uncertainty: t(L, "uncertainty"), risk,
+    recommendedNextStep: t(L, risk === "urgent" ? "next_urgent" : "next_routine"),
+    warningSigns: t(L, "warning"), followUp: t(L, "followup"),
+    referral: sg.referral, tests: sg.tests, reviewNote: sg.reviewNote,
   };
 }

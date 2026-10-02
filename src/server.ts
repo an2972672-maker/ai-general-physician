@@ -3,6 +3,7 @@ import { consult } from "./consult.js";
 import { startConsult, answerConsult } from "./consultation/flow.js";
 import { checkMedication } from "./medication/engine.js";
 import { hashPassword, verifyPassword, signToken, verifyToken } from "./auth/auth.js";
+import { normalizeLang } from "./i18n/messages.js";
 import { pool } from "./db/pool.js";
 import { audit } from "./audit/audit.js";
 import { followupRouter, saveConsultationWithFollowup } from "./followup/routes.js";
@@ -54,7 +55,7 @@ app.post("/api/consult/start", (q, r) => {
   const msg = String(q.body?.message ?? "").slice(0, 2000);
   if (!msg) return void r.status(400).json({ error: "message required" });
   const sex = q.body?.sex === "male" || q.body?.sex === "female" ? q.body.sex : undefined;
-  r.json(startConsult(uid(r), msg, { sex, ageYears: Number(q.body?.ageYears) || undefined }));
+  r.json(startConsult(uid(r), msg, { sex, ageYears: Number(q.body?.ageYears) || undefined }, normalizeLang(q.body?.lang)));
 });
 app.post("/api/consult/answer", async (q, r) => {
   const out = answerConsult(uid(r), String(q.body?.sessionId ?? ""), String(q.body?.answer ?? ""));

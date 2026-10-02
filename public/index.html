@@ -1,23 +1,35 @@
 <!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>AI General Physician</title><style>body{font-family:system-ui;max-width:640px;margin:0 auto;padding:16px}
 #log div{margin:8px 0;padding:10px;border-radius:10px;background:#eef;white-space:pre-wrap}.me{background:#efe!important}.em{background:#fdd!important}
-textarea,input{width:100%;box-sizing:border-box;margin:4px 0;padding:8px}textarea{height:70px}button{padding:10px 16px;margin-right:6px}small{color:#666}</style></head><body>
-<h2>AI Doctor <small>(sirf maloomat, doctor ka badal nahi)</small></h2>
-<div id="auth"><input id="e" placeholder="Email"><input id="p" type="password" placeholder="Password (kam az kam 8 harf)">
-<button onclick="a('register')">Account banayein</button><button onclick="a('login')">Login</button><div id="ae"></div></div>
-<div id="chat" hidden><div id="log"></div><textarea id="m" placeholder="Apni takleef likhein..."></textarea><button onclick="s()">Bhejein</button></div>
+textarea,input,select{width:100%;box-sizing:border-box;margin:4px 0;padding:8px}textarea{height:70px}button{padding:10px 16px;margin:4px 6px 4px 0}</style></head><body>
+<select id="lg" onchange="ap()"><option value="ur-roman">Roman Urdu</option><option value="en">English</option><option value="ur">اردو</option><option value="hi">हिन्दी</option></select>
+<h2>AI Doctor</h2>
+<div id="auth"><input id="e" placeholder="Email"><input id="p" type="password" placeholder="Password (8+)">
+<button onclick="a('register')">Register</button><button onclick="a('login')">Login</button><div id="ae"></div></div>
+<div id="chat" hidden><div id="log"></div><textarea id="m"></textarea><button id="sb" onclick="s()"></button></div>
 <script>let sid=null,tok=null;const log=document.getElementById('log');
+const UI={en:{send:'Send',ph:'Describe your problem...',fq:'Follow-up: how is your problem since last time?',fl:['Better','Same','Worse','New symptoms']},
+'ur-roman':{send:'Bhejein',ph:'Apni takleef likhein...',fq:'Follow-up: pichli baar ke baad takleef kaisi hai?',fl:['Behtar','Waisi hi','Zyada','Naye symptoms']},
+ur:{send:'بھیجیں',ph:'اپنی تکلیف لکھیں...',fq:'فالو اپ: پچھلی بار کے بعد تکلیف کیسی ہے؟',fl:['بہتر','ویسی ہی','زیادہ','نئی علامات']},
+hi:{send:'भेजें',ph:'अपनी तकलीफ़ लिखें...',fq:'फ़ॉलो-अप: पिछली बार के बाद तकलीफ़ कैसी है?',fl:['बेहतर','वैसी ही','ज़्यादा','नए लक्षण']}};
+const L=()=>lg.value;
+function ap(){const u=UI[L()];m.placeholder=u.ph;sb.textContent=u.send;document.body.dir=L()==='ur'?'rtl':'ltr'}ap();
 function add(t,c){const d=document.createElement('div');d.className=c||'';d.textContent=t;log.append(d)}
-async function post(u,b){return fetch(u,{method:'POST',headers:{'content-type':'application/json',...(tok?{authorization:'Bearer '+tok}:{})},body:JSON.stringify(b)}).then(r=>r.json())}
+async function post(u,b){return fetch(u,{method:'POST',headers:{'content-type':'application/json',...(tok?{authorization:'Bearer '+tok}:{})},body:JSON.stringify({...b,lang:L()})}).then(r=>r.json())}
 async function a(k){const r=await post('/auth/'+k,{email:e.value,password:p.value});
-if(r.token){tok=r.token;auth.hidden=true;chat.hidden=false;fu()}else ae.textContent=r.error||'Masla aaya'}
-async function s(){const el=document.getElementById('m'),m=el.value.trim();if(!m)return;el.value='';add(m,'me');
-const r=sid?await post('/api/consult/answer',{sessionId:sid,answer:m}):await post('/api/consult/start',{message:m});
+if(r.token){tok=r.token;auth.hidden=true;chat.hidden=false;ap();fu()}else ae.textContent=r.error||'Error'}
+function show(x,d){let o=Object.entries(x.reportedFacts).map(([k,v])=>k+': '+v).join('\n');
+o+='\n\n'+x.uncertainty+'\n\n'+x.recommendedNextStep+'\n\n'+x.warningSigns;
+if(x.referral.specialties.length)o+='\n\n'+x.referral.title+'\n- '+x.referral.specialties.join('\n- ');
+const t=x.tests;if(t.likely.length||t.possible.length){o+='\n\n';if(t.likely.length)o+=t.likelyTitle+'\n- '+t.likely.join('\n- ')+'\n';
+if(t.possible.length)o+=t.possibleTitle+'\n- '+t.possible.join('\n- ')+'\n';o+=t.note}
+if(x.reviewNote)o+='\n\n'+x.reviewNote;add(o+'\n\n'+x.followUp+'\n\n'+d)}
+async function s(){const el=m,v=el.value.trim();if(!v)return;el.value='';add(v,'me');
+const r=sid?await post('/api/consult/answer',{sessionId:sid,answer:v}):await post('/api/consult/start',{message:v});
 if(r.status==='question'){sid=r.sessionId;add(r.question)}
 else if(r.status==='emergency'){sid=null;add(r.reply,'em')}
-else if(r.status==='assessment'){sid=null;const x=r.assessment;add('Khulasa:\n'+JSON.stringify(x.reportedFacts,null,1)+'\n\n'+x.uncertainty+'\n\nAgla qadam: '+x.recommendedNextStep+'\n\n'+x.followUp+'\n\n'+r.disclaimer)}
-else add(r.error||'Masla aaya')}async function fu(){const r=await fetch('/api/followups/due',{headers:{authorization:'Bearer '+tok}}).then(r=>r.json());if(!Array.isArray(r)||!r.length)return;
-const f=r[0];add('Follow-up: pichli baar ke baad aap ki takleef kaisi hai?');
-for(const [k,t] of [['improved','Behtar'],['same','Waisi hi'],['worse','Zyada'],['new_symptoms','Naye symptoms']]){const b=document.createElement('button');b.textContent=t;
-b.onclick=async()=>{const x=await post('/api/followups/'+f.id+'/respond',{outcome:k});add(x.reply||x.error,x.escalation==='emergency'?'em':'')};log.append(b)}}
-</script></body></html>
+else if(r.status==='assessment'){sid=null;show(r.assessment,r.disclaimer)}
+else add(r.error||'Error')}
+async function fu(){const r=await fetch('/api/followups/due',{headers:{authorization:'Bearer '+tok}}).then(r=>r.json());if(!Array.isArray(r)||!r.length)return;
+const f=r[0],u=UI[L()];add(u.fq);['improved','same','worse','new_symptoms'].forEach((k,i)=>{const b=document.createElement('button');b.textContent=u.fl[i];
+b.onclick=async()=>{const x=await post('/api/followups/'+f.id+'/respond',{outcome:k});add(x.reply||x.error,x.escalation==='emergency'?'em':'')};log.append(b)})}</script></body></html>

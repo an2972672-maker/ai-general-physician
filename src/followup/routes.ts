@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { pool } from "../db/pool.js";
 import { audit } from "../audit/audit.js";
+import { normalizeLang } from "../i18n/messages.js";
 import { OUTCOMES, FOLLOWUP_QUESTION, dueHours, evaluateFollowUp, type Outcome } from "./followup.js";
 
 // Saves a finished consultation and schedules its follow-up (followups table).
@@ -36,7 +37,7 @@ followupRouter.post("/:id/respond", async (q, r) => {
       `SELECT f.id FROM followups f JOIN consultations c ON c.id=f.consultation_id
        WHERE f.id=$1 AND c.user_id=$2 AND f.response IS NULL`, [id, uid(r)]);
     if (!own.rows[0]) return void r.status(404).json({ error: "Follow-up nahi mila." });
-    const ev = evaluateFollowUp(outcome, note);
+    const ev = evaluateFollowUp(outcome, note, normalizeLang(q.body?.lang));
     await pool.query("UPDATE followups SET response=$1, escalation_status=$2 WHERE id=$3", [JSON.stringify({ outcome, note }), ev.escalation, id]);
     audit("followup.response", uid(r), ev.escalation !== "none" ? `followup_${ev.escalation}` : undefined);
     r.json(ev);

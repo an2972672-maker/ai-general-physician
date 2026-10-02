@@ -1,8 +1,9 @@
 // Follow-up engine (Spec §11). Deterministic; re-runs red-flag screening on the patient's reply.
-import { triage, emergencyMessage } from "../safety/triage.js";
+import { triage } from "../safety/triage.js";
+import { t, type Lang } from "../i18n/messages.js";
 export type Outcome = "improved" | "same" | "worse" | "new_symptoms";
 export const OUTCOMES: Outcome[] = ["improved", "same", "worse", "new_symptoms"];
-export const FOLLOWUP_QUESTION = "Pichli baar ke baad aap ki takleef behtar hui, waisi hi hai, zyada ho gayi, ya naye symptoms aaye?";
+export const FOLLOWUP_QUESTION = "followup_status_check"; // stored key; UI shows it in the user's language
 
 // PLACEHOLDER intervals (product config, NOT clinical advice). Clinicians must set real values per condition.
 export function dueHours(risk: string): number {
@@ -11,11 +12,9 @@ export function dueHours(risk: string): number {
 }
 
 export type Escalation = "none" | "urgent" | "emergency";
-export function evaluateFollowUp(outcome: Outcome, note = ""): { escalation: Escalation; reply: string } {
-  const t = triage(note);
-  if (t.risk === "emergency") return { escalation: "emergency", reply: emergencyMessage(process.env.EMERGENCY_NUMBER ?? "1122") };
-  if (outcome === "worse" || outcome === "new_symptoms" || t.risk === "urgent")
-    return { escalation: "urgent", reply: "Takleef barhne ya naye symptoms aane par jald az jald doctor se rujoo karein." };
-  if (outcome === "same") return { escalation: "none", reply: "Takleef waisi hi hai. Agar jald behtar na ho to doctor se rujoo karein." };
-  return { escalation: "none", reply: "Yeh achi baat hai. Agar takleef dobara barhe to doctor se rujoo karein." };
+export function evaluateFollowUp(outcome: Outcome, note = "", lang: Lang = "ur-roman"): { escalation: Escalation; reply: string } {
+  const tr = triage(note);
+  if (tr.risk === "emergency") return { escalation: "emergency", reply: t(lang, "emergency", { n: process.env.EMERGENCY_NUMBER ?? "1122" }) };
+  if (outcome === "worse" || outcome === "new_symptoms" || tr.risk === "urgent") return { escalation: "urgent", reply: t(lang, "fu_urgent") };
+  return { escalation: "none", reply: t(lang, outcome === "same" ? "fu_same" : "fu_ok") };
 }

@@ -1,36 +1,36 @@
 import { randomUUID } from "node:crypto";
-import { triage, emergencyMessage } from "../safety/triage.js";
+import { triage } from "../safety/triage.js";
 import { audit } from "../audit/audit.js";
-import { QUESTIONS, nextSlot, buildAssessment, type Profile, type Session, type Slot } from "./questions.js";
+import { t, type Lang } from "../i18n/messages.js";
+import { questionText, nextSlot, buildAssessment, type Profile, type Session, type Slot } from "./questions.js";
 
-const sessions = new Map<string, Session>(); // TODO Phase 3: persist in PostgreSQL (consultations/symptoms tables)
-const emergency = (userId: string, matched: { id: string; label: string }[]) => {
+const sessions = new Map<string, Session>(); // TODO: persist in-flight sessions in PostgreSQL
+const emergency = (userId: string, matched: { id: string; label: string }[], lang: Lang) => {
   audit("consult.emergency", userId, matched.map(m => m.id).join(","));
-  return { status: "emergency" as const, redFlags: matched, reply: emergencyMessage(process.env.EMERGENCY_NUMBER ?? "1122") };
+  return { status: "emergency" as const, redFlags: matched, reply: t(lang, "emergency", { n: process.env.EMERGENCY_NUMBER ?? "1122" }) };
 };
 const ask = (s: Session) => {
   const slot = nextSlot(s);
-  if (slot) { s.asked.push(slot); return { status: "question" as const, sessionId: s.id, slot, question: QUESTIONS[slot] }; }
+  if (slot) { s.asked.push(slot); return { status: "question" as const, sessionId: s.id, slot, question: questionText(s.lang, slot) }; }
   const flags = triage(Object.values(s.answers).join(" ") + " " + s.complaint).matched.map(m => m.label);
   audit("consult.assessment", s.userId);
   sessions.delete(s.id);
-  return { status: "assessment" as const, assessment: buildAssessment(s, flags), disclaimer: "Yeh sirf maloomat hain, doctor ka mashwara ya prescription nahi." };
+  return { status: "assessment" as const, assessment: buildAssessment(s, flags), disclaimer: t(s.lang, "disclaimer") };
 };
 
-export function startConsult(userId: string, complaint: string, profile: Profile = {}) {
-  const t = triage(complaint);                       // red flags FIRST
-  if (t.risk === "emergency") return emergency(userId, t.matched);
-  const s: Session = { id: randomUUID(), userId, complaint, profile, answers: {}, asked: [] };
+export function startConsult(userId: string, complaint: string, profile: Profile = {}, lang: Lang = "ur-roman") {
+  const tr = triage(complaint);                      // red flags FIRST
+  if (tr.risk === "emergency") return emergency(userId, tr.matched, lang);
+  const s: Session = { id: randomUUID(), userId, lang, complaint, profile, answers: {}, asked: [] };
   sessions.set(s.id, s);
   return ask(s);
 }
 
 export function answerConsult(userId: string, sessionId: string, text: string) {
   const s = sessions.get(sessionId);
-  if (!s || s.userId !== userId) return { status: "error" as const, error: "Session nahi mila." };
-  const t = triage(text);                            // every answer is screened too
-  if (t.risk === "emergency") { sessions.delete(s.id); return emergency(userId, t.matched); }
-  const slot = s.asked[s.asked.length - 1] as Slot;
-  s.answers[slot] = text.slice(0, 500);
+  if (!s || s.userId !== userId) return { status: "error" as const, error: "Session not found." };
+  const tr = triage(text);                           // every answer is screened too
+  if (tr.risk === "emergency") { sessions.delete(s.id); return emergency(userId, tr.matched, s.lang); }
+  s.answers[s.asked[s.asked.length - 1] as Slot] = text.slice(0, 500);
   return ask(s);
 }
