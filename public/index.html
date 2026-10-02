@@ -1,9 +1,15 @@
 <!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>AI General Physician</title><style>body{font-family:system-ui;max-width:640px;margin:0 auto;padding:16px}
-#log div{margin:8px 0;padding:10px;border-radius:10px;background:#eef}.em{background:#fdd!important}
-textarea{width:100%;height:80px}button{padding:10px 16px}</style></head><body>
-<h2>AI Doctor (education only)</h2><div id="log"></div>
+#log div{margin:8px 0;padding:10px;border-radius:10px;background:#eef;white-space:pre-wrap}.me{background:#efe!important}.em{background:#fdd!important}
+textarea{width:100%;height:70px}button{padding:10px 16px}small{color:#666}</style></head><body>
+<h2>AI Doctor <small>(sirf maloomat, doctor ka badal nahi)</small></h2><div id="log"></div>
 <textarea id="m" placeholder="Apni takleef likhein..."></textarea><button onclick="s()">Bhejein</button>
-<script>async function s(){const m=document.getElementById('m').value;if(!m)return;
-const r=await fetch('/api/consult',{method:'POST',headers:{'content-type':'application/json','x-user-id':'demo'},body:JSON.stringify({message:m})}).then(r=>r.json());
-const d=document.createElement('div');d.className=r.risk==='emergency'?'em':'';d.textContent=r.reply;document.getElementById('log').append(d);document.getElementById('m').value=''}</script></body></html>
+<script>let sid=null;const log=document.getElementById('log');
+function add(t,c){const d=document.createElement('div');d.className=c||'';d.textContent=t;log.append(d)}
+async function post(u,b){return fetch(u,{method:'POST',headers:{'content-type':'application/json','x-user-id':'demo'},body:JSON.stringify(b)}).then(r=>r.json())}
+async function s(){const el=document.getElementById('m'),m=el.value.trim();if(!m)return;el.value='';add(m,'me');
+const r=sid?await post('/api/consult/answer',{sessionId:sid,answer:m}):await post('/api/consult/start',{message:m});
+if(r.status==='question'){sid=r.sessionId;add(r.question)}
+else if(r.status==='emergency'){sid=null;add(r.reply,'em')}
+else if(r.status==='assessment'){sid=null;const a=r.assessment;add('Khulasa:\n'+JSON.stringify(a.reportedFacts,null,1)+'\n\n'+a.uncertainty+'\n\nAgla qadam: '+a.recommendedNextStep+'\n\n'+a.followUp+'\n\n'+r.disclaimer)}
+else add(r.error||'Masla aaya')}</script></body></html>
