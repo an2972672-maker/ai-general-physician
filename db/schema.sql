@@ -1,0 +1,11 @@
+CREATE TABLE users(id UUID PRIMARY KEY DEFAULT gen_random_uuid(), name TEXT, date_of_birth DATE, sex TEXT, profile JSONB, created_at TIMESTAMPTZ DEFAULT now());
+CREATE TABLE medical_history(id SERIAL PRIMARY KEY, user_id UUID REFERENCES users ON DELETE CASCADE, condition TEXT, status TEXT, diagnosed_on DATE, notes TEXT);
+CREATE TABLE allergies(id SERIAL PRIMARY KEY, user_id UUID REFERENCES users ON DELETE CASCADE, allergen TEXT, reaction TEXT, severity TEXT);
+CREATE TABLE medications(id SERIAL PRIMARY KEY, user_id UUID REFERENCES users ON DELETE CASCADE, generic_name TEXT, brand_name TEXT, user_entered_instructions TEXT, start_date DATE, end_date DATE);
+CREATE TABLE consultations(id UUID PRIMARY KEY DEFAULT gen_random_uuid(), user_id UUID REFERENCES users ON DELETE CASCADE, structured_symptoms JSONB, answers JSONB, risk_level TEXT, assessment JSONB, guidance TEXT, created_at TIMESTAMPTZ DEFAULT now());
+CREATE TABLE symptoms(id SERIAL PRIMARY KEY, consultation_id UUID REFERENCES consultations ON DELETE CASCADE, symptom TEXT, onset TEXT, duration TEXT, severity TEXT, location TEXT, associated JSONB);
+CREATE TABLE vitals(id SERIAL PRIMARY KEY, user_id UUID REFERENCES users ON DELETE CASCADE, type TEXT, value NUMERIC, unit TEXT, recorded_at TIMESTAMPTZ DEFAULT now());
+CREATE TABLE reports(id UUID PRIMARY KEY DEFAULT gen_random_uuid(), user_id UUID REFERENCES users ON DELETE CASCADE, file_ref TEXT, report_type TEXT, extracted_values JSONB, source_lab TEXT, report_date DATE, analysis TEXT);
+CREATE TABLE followups(id SERIAL PRIMARY KEY, consultation_id UUID REFERENCES consultations ON DELETE CASCADE, due_at TIMESTAMPTZ, questions JSONB, response JSONB, escalation_status TEXT);
+CREATE TABLE medication_knowledge(id SERIAL PRIMARY KEY, generic TEXT, brands TEXT[], drug_class TEXT, indications TEXT[], contraindications TEXT[], interactions JSONB, warnings JSONB, source TEXT NOT NULL, version TEXT NOT NULL, reviewed_at TIMESTAMPTZ);
+CREATE TABLE audit_logs(id BIGSERIAL PRIMARY KEY, action TEXT, actor TEXT, safety_event TEXT, ts TIMESTAMPTZ DEFAULT now());

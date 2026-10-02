@@ -1,0 +1,9 @@
+<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>AI General Physician</title><style>body{font-family:system-ui;max-width:640px;margin:0 auto;padding:16px}
+#log div{margin:8px 0;padding:10px;border-radius:10px;background:#eef}.em{background:#fdd!important}
+textarea{width:100%;height:80px}button{padding:10px 16px}</style></head><body>
+<h2>AI Doctor (education only)</h2><div id="log"></div>
+<textarea id="m" placeholder="Apni takleef likhein..."></textarea><button onclick="s()">Bhejein</button>
+<script>async function s(){const m=document.getElementById('m').value;if(!m)return;
+const r=await fetch('/api/consult',{method:'POST',headers:{'content-type':'application/json','x-user-id':'demo'},body:JSON.stringify({message:m})}).then(r=>r.json());
+const d=document.createElement('div');d.className=r.risk==='emergency'?'em':'';d.textContent=r.reply;document.getElementById('log').append(d);document.getElementById('m').value=''}</script></body></html>

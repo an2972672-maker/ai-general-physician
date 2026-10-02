@@ -1,0 +1,5 @@
+{"version":"0.0.1-PLACEHOLDER","note":"Starter schema only. NO entry is clinically reviewed. Do not use in production until pharmacists/clinicians populate and sign off each record with a real source.",
+"entries":[{"generic":"paracetamol","brands":[],"class":"analgesic/antipyretic","indications":["pain","fever"],
+"contraindications":["severe hepatic impairment"],"allergyKeys":["paracetamol","acetaminophen"],
+"interactsWith":[],"minAgeYears":null,"pregnancyWarning":true,"dosing":null,
+"source":"TODO: cite authoritative source","reviewed":false,"reviewedAt":null}]}
