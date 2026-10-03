@@ -55,7 +55,7 @@ app.post("/api/consult/start", (q, r) => {
   const msg = String(q.body?.message ?? "").slice(0, 2000);
   if (!msg) return void r.status(400).json({ error: "message required" });
   const sex = q.body?.sex === "male" || q.body?.sex === "female" ? q.body.sex : undefined;
-  r.json(startConsult(uid(r), msg, { sex, ageYears: Number(q.body?.ageYears) || undefined }, normalizeLang(q.body?.lang)));
+  r.json(startConsult(uid(r), msg, { sex, ageYears: Number(q.body?.ageYears) || undefined, weightKg: Number(q.body?.weightKg) >= 1 && Number(q.body?.weightKg) <= 150 ? Number(q.body?.weightKg) : undefined }, normalizeLang(q.body?.lang)));
 });
 app.post("/api/consult/answer", async (q, r) => {
   const out = answerConsult(uid(r), String(q.body?.sessionId ?? ""), String(q.body?.answer ?? ""));

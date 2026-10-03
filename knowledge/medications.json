@@ -1,5 +1,341 @@
-{"version":"0.0.1-PLACEHOLDER","note":"Starter schema only. NO entry is clinically reviewed. Do not use in production until pharmacists/clinicians populate and sign off each record with a real source.",
-"entries":[{"generic":"paracetamol","brands":[],"class":"analgesic/antipyretic","indications":["pain","fever"],
-"contraindications":["severe hepatic impairment"],"allergyKeys":["paracetamol","acetaminophen"],
-"interactsWith":[],"minAgeYears":null,"pregnancyWarning":true,"dosing":null,
-"source":"TODO: cite authoritative source","reviewed":false,"reviewedAt":null}]}
+{
+ "version": "0.0.4-PLACEHOLDER",
+ "note": "Starter OTC list. NOT pharmacist-reviewed. Brands are market names, not endorsements (output is alphabetical). Pharmacists must verify, extend per country, add validated numeric dosing, and set reviewed=true with a real source before production. No doses are stored or shown. Dosing: adult-only DRAFT values for 3 oral medicines, deliberately conservative. Shown only if dosing.reviewed=true with reviewedBy+source, or OTC_SHOW_DRAFT_DOSES=true (demo). Child dosing is intentionally not supported.",
+ "entries": [
+  {
+   "brands": [],
+   "otc": true,
+   "minAgeYears": null,
+   "pregnancyWarning": true,
+   "dosing": {
+    "adult": {
+     "amount": "500 mg to 1,000 mg",
+     "minGapHours": 6,
+     "max24h": "3,000 mg",
+     "maxDays": 3
+    },
+    "source": "TODO: pharmacist to cite authoritative source",
+    "reviewed": false,
+    "reviewedBy": null,
+    "reviewedAt": null
+   },
+   "contraindications": [],
+   "interactsWith": [],
+   "source": "TODO: pharmacist to cite authoritative source",
+   "reviewed": false,
+   "reviewedAt": null,
+   "generic": "paracetamol",
+   "chemicalName": "acetaminophen (N-acetyl-p-aminophenol)",
+   "class": "analgesic/antipyretic",
+   "match": "fever|bukhar|headache|sar dard|pain|dard|بخار|درد|سر درد|बुखार|दर्द|सिरदर्द",
+   "brandsByCountry": {
+    "PK": [
+     "Calpol",
+     "Panadol"
+    ],
+    "IN": [
+     "Calpol",
+     "Crocin",
+     "Dolo"
+    ]
+   },
+   "allergyKeys": [
+    "paracetamol",
+    "acetaminophen"
+   ],
+   "usesKey": "u_fever_pain",
+   "howKeys": [
+    "h_water",
+    "h_any_time",
+    "h_spacing"
+   ],
+   "warnKey": "w_paracetamol"
+  },
+  {
+   "brands": [],
+   "otc": true,
+   "minAgeYears": null,
+   "pregnancyWarning": true,
+   "dosing": {
+    "adult": {
+     "amount": "200 mg to 400 mg",
+     "minGapHours": 6,
+     "max24h": "1,200 mg",
+     "maxDays": 3
+    },
+    "source": "TODO: pharmacist to cite authoritative source",
+    "reviewed": false,
+    "reviewedBy": null,
+    "reviewedAt": null
+   },
+   "contraindications": [],
+   "interactsWith": [],
+   "source": "TODO: pharmacist to cite authoritative source",
+   "reviewed": false,
+   "reviewedAt": null,
+   "generic": "ibuprofen",
+   "chemicalName": "ibuprofen",
+   "class": "NSAID",
+   "match": "muscle|joint|body ache|body pain|badan dard|toothache|dant dard|period pain|عضلات|جوڑ|بدن درد|दांत|जोड़|बदन दर्द|मांसपेशी",
+   "brandsByCountry": {
+    "PK": [
+     "Brufen"
+    ],
+    "IN": [
+     "Brufen",
+     "Ibugesic"
+    ]
+   },
+   "allergyKeys": [
+    "ibuprofen",
+    "aspirin",
+    "nsaid",
+    "diclofenac"
+   ],
+   "usesKey": "u_pain_inflam",
+   "howKeys": [
+    "h_water",
+    "h_after_food",
+    "h_spacing"
+   ],
+   "warnKey": "w_ibuprofen"
+  },
+  {
+   "brands": [],
+   "otc": true,
+   "minAgeYears": null,
+   "pregnancyWarning": true,
+   "dosing": {
+    "adult": {
+     "amount": "10 mg",
+     "minGapHours": 24,
+     "max24h": "10 mg",
+     "maxDays": null
+    },
+    "source": "TODO: pharmacist to cite authoritative source",
+    "reviewed": false,
+    "reviewedBy": null,
+    "reviewedAt": null
+   },
+   "contraindications": [],
+   "interactsWith": [],
+   "source": "TODO: pharmacist to cite authoritative source",
+   "reviewed": false,
+   "reviewedAt": null,
+   "generic": "cetirizine",
+   "chemicalName": "cetirizine hydrochloride",
+   "class": "antihistamine",
+   "match": "allerg|sneez|runny nose|itch|kharish|chheenk|naak beh|الرجی|چھینک|خارش|एलर्जी|छींक|खुजली",
+   "brandsByCountry": {
+    "PK": [],
+    "IN": [
+     "Cetzine",
+     "Okacet"
+    ]
+   },
+   "allergyKeys": [
+    "cetirizine",
+    "hydroxyzine"
+   ],
+   "usesKey": "u_allergy",
+   "howKeys": [
+    "h_water",
+    "h_evening"
+   ],
+   "warnKey": "w_cetirizine"
+  },
+  {
+   "brands": [],
+   "otc": true,
+   "minAgeYears": null,
+   "pregnancyWarning": true,
+   "dosing": null,
+   "contraindications": [],
+   "interactsWith": [],
+   "source": "TODO: pharmacist to cite authoritative source",
+   "reviewed": false,
+   "reviewedAt": null,
+   "generic": "sodium alginate antacid",
+   "chemicalName": "sodium alginate-based antacid",
+   "class": "antacid/alginate",
+   "match": "acidity|heartburn|reflux|khatti|تیزابیت|ایسیڈیٹی|एसिडिटी|खट्टी",
+   "brandsByCountry": {
+    "PK": [
+     "Gaviscon"
+    ],
+    "IN": [
+     "Gaviscon"
+    ]
+   },
+   "allergyKeys": [],
+   "usesKey": "u_acidity",
+   "howKeys": [
+    "h_after_meals_bed"
+   ],
+   "warnKey": "w_alginate"
+  },
+  {
+   "brands": [],
+   "otc": true,
+   "minAgeYears": null,
+   "pregnancyWarning": true,
+   "dosing": null,
+   "contraindications": [],
+   "interactsWith": [],
+   "source": "TODO: pharmacist to cite authoritative source",
+   "reviewed": false,
+   "reviewedAt": null,
+   "generic": "oral rehydration salts (ORS)",
+   "chemicalName": "glucose + electrolyte salts",
+   "class": "rehydration",
+   "match": "diarrh|dast|loose motion|dehydrat|اسہال|دست|پانی کی کمی|दस्त|पानी की कमी",
+   "brandsByCountry": {
+    "PK": [],
+    "IN": [
+     "Electral"
+    ]
+   },
+   "allergyKeys": [],
+   "usesKey": "u_dehydration",
+   "howKeys": [
+    "h_ors"
+   ],
+   "warnKey": "w_ors"
+  },
+  {
+   "brands": [],
+   "otc": true,
+   "minAgeYears": null,
+   "pregnancyWarning": true,
+   "dosing": null,
+   "contraindications": [],
+   "interactsWith": [],
+   "source": "TODO: pharmacist to cite authoritative source",
+   "reviewed": false,
+   "reviewedAt": null,
+   "generic": "xylometazoline",
+   "chemicalName": "xylometazoline hydrochloride",
+   "class": "nasal decongestant",
+   "match": "blocked nose|nasal congestion|stuffy|naak band|ناک بند|नाक बंद",
+   "brandsByCountry": {
+    "PK": [
+     "Otrivin"
+    ],
+    "IN": [
+     "Otrivin"
+    ]
+   },
+   "allergyKeys": [
+    "xylometazoline"
+   ],
+   "usesKey": "u_congestion",
+   "howKeys": [
+    "h_nasal"
+   ],
+   "warnKey": "w_nasal"
+  },
+  {
+   "brands": [],
+   "otc": true,
+   "minAgeYears": null,
+   "pregnancyWarning": true,
+   "dosing": null,
+   "contraindications": [],
+   "interactsWith": [],
+   "source": "TODO: pharmacist to cite authoritative source",
+   "reviewed": false,
+   "reviewedAt": null,
+   "generic": "clotrimazole",
+   "chemicalName": "clotrimazole (topical)",
+   "class": "antifungal",
+   "match": "fungal|ringworm|dad|داد|فنگل|दाद|फंगल",
+   "brandsByCountry": {
+    "PK": [
+     "Canesten"
+    ],
+    "IN": [
+     "Candid",
+     "Canesten"
+    ]
+   },
+   "allergyKeys": [
+    "clotrimazole",
+    "imidazole"
+   ],
+   "usesKey": "u_fungal",
+   "howKeys": [
+    "h_antifungal"
+   ],
+   "warnKey": "w_antifungal"
+  },
+  {
+   "brands": [],
+   "otc": true,
+   "minAgeYears": null,
+   "pregnancyWarning": true,
+   "dosing": null,
+   "contraindications": [],
+   "interactsWith": [],
+   "source": "TODO: pharmacist to cite authoritative source",
+   "reviewed": false,
+   "reviewedAt": null,
+   "generic": "povidone-iodine",
+   "chemicalName": "povidone-iodine (topical)",
+   "class": "antiseptic",
+   "match": "\\bcut\\b|wound|scrape|graze|zakhm|زخم|घाव|ज़ख्म",
+   "brandsByCountry": {
+    "PK": [
+     "Betadine"
+    ],
+    "IN": [
+     "Betadine"
+    ]
+   },
+   "allergyKeys": [
+    "iodine",
+    "povidone"
+   ],
+   "usesKey": "u_wound",
+   "howKeys": [
+    "h_antiseptic"
+   ],
+   "warnKey": "w_antiseptic"
+  },
+  {
+   "brands": [],
+   "otc": true,
+   "minAgeYears": null,
+   "pregnancyWarning": true,
+   "dosing": null,
+   "contraindications": [],
+   "interactsWith": [],
+   "source": "TODO: pharmacist to cite authoritative source",
+   "reviewed": false,
+   "reviewedAt": null,
+   "generic": "diclofenac gel",
+   "chemicalName": "diclofenac (topical gel)",
+   "class": "topical NSAID",
+   "match": "muscle|joint|sprain|back pain|kamar dard|عضلات|جوڑ|کمر درد|मांसपेशी|जोड़|कमर दर्द|मोच",
+   "brandsByCountry": {
+    "PK": [
+     "Voltaren"
+    ],
+    "IN": [
+     "Voltaren",
+     "Voveran"
+    ]
+   },
+   "allergyKeys": [
+    "diclofenac",
+    "aspirin",
+    "ibuprofen",
+    "nsaid"
+   ],
+   "usesKey": "u_muscle_gel",
+   "howKeys": [
+    "h_gel"
+   ],
+   "warnKey": "w_gel"
+  }
+ ]
+}
