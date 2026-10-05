@@ -31,7 +31,7 @@ describe("common ailments -> basic OTC with how-to", () => {
     expect(item.how.length).toBeGreaterThan(0);
     expect(item.warning.length).toBeGreaterThan(0);
   });
-  it("shows Pakistan and India brands", () => { process.env.OTC_PREVIEW = "true"; const i = run("badan dard hai").items[0]; expect(i.brandsPK).toContain("Brufen"); expect(i.brandsIN).toContain("Ibugesic"); });
+  it("shows Pakistan and India brands", () => { process.env.OTC_PREVIEW = "true"; const i = run("badan dard hai").items.find((x: any) => x.generic === "ibuprofen"); expect(i.brandsPK).toContain("Brufen"); expect(i.brandsIN).toContain("Ibugesic"); });
   it("works in Urdu script and Hindi", () => {
     process.env.OTC_PREVIEW = "true";
     expect(run("مجھے بخار ہے", "ur").items[0].how[0]).toMatch(/[\u0600-\u06FF]/);
