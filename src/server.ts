@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import express, { type Request, type Response } from "express";
 import { consult } from "./consult.js";
 import { startConsult, answerConsult } from "./consultation/flow.js";
@@ -11,16 +12,22 @@ import { followupRouter, saveConsultationWithFollowup } from "./followup/routes.
 const app = express();
 app.use(express.json({ limit: "1mb" }));
 app.use(express.static("public"));
-app.get("/health", (_q, r) => void r.json({ ok: true }));
+app.get("/health", (_q, r) => void r.json({ ok: true, demo: !pool }));
 
 const EMAIL = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
+const demoUsers = new Map<string, { id: string; hash: string }>(); // DEMO MODE only (no DATABASE_URL)
 const noDb = (r: Response) => void r.status(503).json({ error: "Database configured nahi hai." });
 
 // TODO: add rate limiting on /auth/* (brute-force protection) before public launch.
 app.post("/auth/register", async (q, r) => {
-  if (!pool) return noDb(r);
   const { email, password, name } = q.body ?? {};
   if (!EMAIL.test(String(email)) || String(password ?? "").length < 8) return void r.status(400).json({ error: "Sahi email aur kam az kam 8 harf ka password dein." });
+  if (!pool) { // DEMO MODE: accounts live in memory only
+    const k = String(email).toLowerCase();
+    if (demoUsers.has(k)) return void r.status(409).json({ error: "Account nahi ban saka." });
+    const id = randomUUID(); demoUsers.set(k, { id, hash: hashPassword(String(password)) });
+    audit("auth.register", id); return void r.json({ token: signToken(id) });
+  }
   try {
     const { rows } = await pool.query("INSERT INTO users(name, email, password_hash) VALUES($1,$2,$3) RETURNING id",
       [String(name ?? "").slice(0, 100), String(email).toLowerCase(), hashPassword(String(password))]);
@@ -29,9 +36,9 @@ app.post("/auth/register", async (q, r) => {
   } catch { r.status(409).json({ error: "Account nahi ban saka." }); }
 });
 app.post("/auth/login", async (q, r) => {
-  if (!pool) return noDb(r);
-  const { rows } = await pool.query("SELECT id, password_hash FROM users WHERE email=$1", [String(q.body?.email ?? "").toLowerCase()]);
-  const u = rows[0];
+  const email = String(q.body?.email ?? "").toLowerCase();
+  const du = demoUsers.get(email);
+  const u = pool ? (await pool.query("SELECT id, password_hash FROM users WHERE email=$1", [email])).rows[0] : du ? { id: du.id, password_hash: du.hash } : undefined;
   if (!u || !verifyPassword(String(q.body?.password ?? ""), u.password_hash)) { audit("auth.login_failed", "anonymous"); return void r.status(401).json({ error: "Email ya password ghalat hai." }); }
   audit("auth.login", u.id);
   r.json({ token: signToken(u.id) });
@@ -72,4 +79,5 @@ app.post("/api/medication/check", (q, r) => {
   r.json(checkMedication({ generic: String(b.generic ?? ""), ageYears: b.ageYears, pregnant: b.pregnant,
     allergies: b.allergies ?? [], currentMeds: b.currentMeds ?? [], conditions: b.conditions ?? [] }));
 });
+if (!pool) console.warn("DEMO MODE: no DATABASE_URL, accounts are kept in memory only. Do not use with real patients.");
 app.listen(Number(process.env.PORT ?? 3000), () => console.log("API running"));

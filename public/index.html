@@ -3,11 +3,11 @@
 #log div{margin:8px 0;padding:10px;border-radius:10px;background:#eef;white-space:pre-wrap}.me{background:#efe!important}.em{background:#fdd!important}
 textarea,input,select{width:100%;box-sizing:border-box;margin:4px 0;padding:8px}textarea{height:70px}button{padding:10px 16px;margin:4px 6px 4px 0}</style></head><body>
 <select id="lg" onchange="ap()"><option value="ur-roman">Roman Urdu</option><option value="en">English</option><option value="ur">اردو</option><option value="hi">हिन्दी</option></select>
-<h2>AI Doctor</h2>
+<h2>AI Doctor</h2><div id="demo" hidden style="background:#ffe08a;padding:8px;border-radius:8px;margin-bottom:8px">DEMO MODE: sirf aazmaish ke liye, asli mareezon ke liye nahi.</div>
 <div id="auth"><input id="e" placeholder="Email"><input id="p" type="password" placeholder="Password (8+)">
 <button onclick="a('register')">Register</button><button onclick="a('login')">Login</button><div id="ae"></div></div>
 <div id="chat" hidden><input id="ag" type="number" min="0" max="120" step="0.1" placeholder="Age / عمر / उम्र"><select id="au"><option value="y">years / سال / साल</option><option value="m">months / مہینے / महीने</option></select><input id="wt" type="number" min="1" max="150" step="0.1" placeholder="Weight kg / وزن / वज़न"><select id="sx"><option value="">Sex / جنس / लिंग</option><option value="male">Male / مرد / पुरुष</option><option value="female">Female / عورت / महिला</option></select><div id="log"></div><textarea id="m"></textarea><button id="sb" onclick="s()"></button></div>
-<script>let sid=null,tok=null;const log=document.getElementById('log');
+<script>fetch('/health').then(r=>r.json()).then(x=>{if(x.demo)document.getElementById('demo').hidden=false}).catch(()=>{});let sid=null,tok=null;const log=document.getElementById('log');
 const UI={en:{send:'Send',ph:'Describe your problem...',fq:'Follow-up: how is your problem since last time?',fl:['Better','Same','Worse','New symptoms']},
 'ur-roman':{send:'Bhejein',ph:'Apni takleef likhein...',fq:'Follow-up: pichli baar ke baad takleef kaisi hai?',fl:['Behtar','Waisi hi','Zyada','Naye symptoms']},
 ur:{send:'بھیجیں',ph:'اپنی تکلیف لکھیں...',fq:'فالو اپ: پچھلی بار کے بعد تکلیف کیسی ہے؟',fl:['بہتر','ویسی ہی','زیادہ','نئی علامات']},
