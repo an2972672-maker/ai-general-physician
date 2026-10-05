@@ -61,6 +61,7 @@ export function buildAssessment(s: Session, redFlagLabels: string[]) {
   const sg = suggest([s.complaint, ...Object.values(s.answers)].join(" "), L);
   return {
     reportedFacts: { complaint: s.complaint, ...s.answers }, urgentReasons: reasons,
+    factsList: Object.entries(s.answers).map(([k, v]) => ({ q: questionText(L, k as Slot), a: v })),
     possibleExplanations: [] as string[], // TODO Phase 6: from RAG with citations, never from LLM alone
     uncertainty: t(L, "uncertainty"), risk,
     recommendedNextStep: t(L, risk === "urgent" ? "next_urgent" : "next_routine"),

@@ -5,7 +5,7 @@ import { checkMedication, UNREVIEWED, type MedEntry } from "./engine.js";
 import { t, type Key, type Lang } from "../i18n/messages.js";
 import type { Profile } from "../consultation/questions.js";
 
-const NO = /^\s*(no|none|nope|nahi|nahin|koi nahi|نہیں|نہی|کوئی نہیں|नहीं|नही|कोई नहीं)\s*[.!۔]*\s*$/i;
+const NO = /^\s*(no|n|nope|nah|na|nh|nhi|nai|nahi|nahin|nahi hai|nahin hai|none|nil|nothing|koi nahi|koi nahi hai|نہیں|نہی|نہ|کوئی نہیں|نہیں ہے|नहीं|नही|नहीं है|कोई नहीं)\s*[.!۔]*\s*$/i;
 export const isNo = (s?: string) => s !== undefined && NO.test(s.trim()); // missing answer is NOT treated as "no"
 const tokens = (s: string) => s.split(/[,;،]|\s(?:and|aur|और)\s/i).map(x => x.trim().toLowerCase()).filter(Boolean);
 

@@ -175,6 +175,8 @@ export const MSG = {
     "Bachcha (wazan {kg} kg): har khuraak {mg} mg.", "बच्चा (वज़न {kg} किलो): हर खुराक {mg} मि.ग्रा."),
   dose_child_form: m("Ask a pharmacist how many ml or tablets this is for your product's strength.", "فارماسسٹ سے پوچھیں کہ آپ کی دوا کی طاقت کے حساب سے یہ کتنے ملی لیٹر یا گولیاں ہیں۔",
     "Pharmacist se poochhein ke aap ki dawai ki taqat ke hisaab se yeh kitne ml ya goliyan hain.", "फ़ार्मासिस्ट से पूछें कि आपकी दवा की ताक़त के हिसाब से यह कितने मि.ली. या गोलियाँ हैं।"),
+  ack: m("I'm here to help. Please describe your health problem (for example: 'I have had a fever for 2 days') to start a consultation.", "میں مدد کے لیے حاضر ہوں۔ مشورہ شروع کرنے کے لیے اپنی صحت کا مسئلہ لکھیں (مثلاً: 'مجھے 2 دن سے بخار ہے')۔",
+    "Main madad ke liye hazir hoon. Mashwara shuru karne ke liye apni sehat ka masla likhein (masalan: 'mujhe 2 din se bukhar hai').", "मैं मदद के लिए हाज़िर हूँ। सलाह शुरू करने के लिए अपनी सेहत की समस्या लिखें (जैसे: 'मुझे 2 दिन से बुखार है')।"),
 };
 export type Key = keyof typeof MSG;
 export const t = (lang: Lang, key: Key, vars: Record<string, string | number> = {}): string =>

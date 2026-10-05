@@ -18,7 +18,7 @@ function add(t,c){const d=document.createElement('div');d.className=c||'';d.text
 async function post(u,b){return fetch(u,{method:'POST',headers:{'content-type':'application/json',...(tok?{authorization:'Bearer '+tok}:{})},body:JSON.stringify({...b,lang:L()})}).then(r=>r.json())}
 async function a(k){const r=await post('/auth/'+k,{email:e.value,password:p.value});
 if(r.token){tok=r.token;auth.hidden=true;chat.hidden=false;ap();fu()}else ae.textContent=r.error||'Error'}
-function show(x,d){let o=Object.entries(x.reportedFacts).map(([k,v])=>k+': '+v).join('\n');
+function show(x,d){let o='• '+x.reportedFacts.complaint+'\n'+x.factsList.map(f=>'• '+f.q+'\n   → '+f.a).join('\n');
 o+='\n\n'+x.uncertainty+'\n\n'+x.recommendedNextStep+'\n\n'+x.warningSigns;
 if(x.referral.specialties.length)o+='\n\n'+x.referral.title+'\n- '+x.referral.specialties.join('\n- ');
 const t=x.tests;if(t.likely.length||t.possible.length){o+='\n\n';if(t.likely.length)o+=t.likelyTitle+'\n- '+t.likely.join('\n- ')+'\n';
@@ -30,7 +30,7 @@ const r=sid?await post('/api/consult/answer',{sessionId:sid,answer:v}):await pos
 if(r.status==='question'){sid=r.sessionId;add(r.question)}
 else if(r.status==='emergency'||r.status==='urgent_stop'){sid=null;add(r.reply,'em')}
 else if(r.status==='assessment'){sid=null;show(r.assessment,r.disclaimer)}
-else add(r.error||'Error')}
+else if(r.status==='chat')add(r.reply);else add(r.error||'Error')}
 async function fu(){const r=await fetch('/api/followups/due',{headers:{authorization:'Bearer '+tok}}).then(r=>r.json());if(!Array.isArray(r)||!r.length)return;
 const f=r[0],u=UI[L()];add(u.fq);['improved','same','worse','new_symptoms'].forEach((k,i)=>{const b=document.createElement('button');b.textContent=u.fl[i];
 b.onclick=async()=>{const x=await post('/api/followups/'+f.id+'/respond',{outcome:k});add(x.reply||x.error,x.escalation==='emergency'?'em':'')};log.append(b)})}</script></body></html>

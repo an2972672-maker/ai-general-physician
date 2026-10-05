@@ -18,7 +18,9 @@ const ask = (s: Session) => {
   return { status: "assessment" as const, assessment: buildAssessment(s, flags), disclaimer: t(s.lang, "disclaimer") };
 };
 
+const TRIVIAL = /^\s*(ok|okay|k|thanks|thank you|thx|hi|hello|hmm|yes|no|salam|assalam o alaikum|shukriya|shukria|theek hai|thik hai|theek|thik|ji|haan|han|nahi|nh|شکریہ|ٹھیک ہے|جی|ہاں|سلام|धन्यवाद|शुक्रिया|ठीक है|हाँ|हां|नमस्ते)[\s.!۔?]*$/i;
 export function startConsult(userId: string, complaint: string, profile: Profile = {}, lang: Lang = "ur-roman") {
+  if (TRIVIAL.test(complaint)) return { status: "chat" as const, reply: t(lang, "ack") }; // "ok", "thanks", "hello" are not a new complaint
   const tr = triage(complaint);                      // red flags FIRST
   if (tr.risk === "emergency") return emergency(userId, tr.matched, lang);
   if (isFever(complaint) && profile.ageYears !== undefined && profile.ageYears * 12 < 3) { // baby under 3 months with fever (placeholder rule for clinician review)
