@@ -1,0 +1,9 @@
+{
+  "name": "AI General Physician",
+  "image": "mcr.microsoft.com/devcontainers/typescript-node:22",
+  "forwardPorts": [3000],
+  "portsAttributes": {
+    "3000": { "label": "App", "onAutoForward": "openBrowser" }
+  },
+  "postAttachCommand": "npm install && nohup npm run dev > app.log 2>&1 &"
+}
