@@ -1,0 +1,24 @@
+export default {"version":"0.0.1-PLACEHOLDER","reviewed":false,
+"note":"Starter keyword->specialty and symptom->test mapping. NOT clinically reviewed. Clinicians must review, extend (e.g. gynecology, nephrology) and sign off before real use. Tests are suggestions for a doctor to decide, never orders.",
+"specialties":[
+{"id":"cardiology","match":"heart|palpitat|chest|seene|dil |دل|سینے|धड़कन|सीने|दिल","names":{"en":"Cardiology (heart)","ur-roman":"Cardiology (dil ka doctor)","ur":"کارڈیالوجی (دل کے ماہر)","hi":"कार्डियोलॉजी (हृदय रोग विशेषज्ञ)"}},
+{"id":"dermatology","match":"skin|rash|itch|kharish|daane|جلد|خارش|دانے|त्वचा|खुजली|दाने","names":{"en":"Dermatology (skin)","ur-roman":"Dermatology (jild ka doctor)","ur":"ڈرمیٹولوجی (جلد کے ماہر)","hi":"डर्मेटोलॉजी (त्वचा रोग विशेषज्ञ)"}},
+{"id":"gastro","match":"stomach|abdom|vomit|nausea|diarrh|constipat|pet |ulti|dast|معدہ|پیٹ|الٹی|دست|पेट|उल्टी|दस्त","names":{"en":"Gastroenterology (stomach and gut)","ur-roman":"Gastroenterology (pet ka doctor)","ur":"گیسٹرو اینٹرولوجی (پیٹ کے ماہر)","hi":"गैस्ट्रोएंटरोलॉजी (पेट रोग विशेषज्ञ)"}},
+{"id":"neurology","match":"headache|migraine|numb|dizz|seizure|sar dard|sar mein|chakkar|سر درد|چکر|सिरदर्द|सिर दर्द|चक्कर|सुन्न","names":{"en":"Neurology (brain and nerves)","ur-roman":"Neurology (dimaagh aur asaab ka doctor)","ur":"نیورولوجی (دماغ اور اعصاب کے ماہر)","hi":"न्यूरोलॉजी (मस्तिष्क व नसों के विशेषज्ञ)"}},
+{"id":"ent","match":"earache|ear pain|throat|nose|sinus|kaan|gala|naak|کان|گلا|ناک|कान|गला|नाक","names":{"en":"ENT (ear, nose, throat)","ur-roman":"ENT (kaan, naak, gala)","ur":"ای این ٹی (کان، ناک، گلا)","hi":"ईएनटी (कान, नाक, गला)"}},
+{"id":"eye","match":"eye|vision|aankh|nazar|آنکھ|نظر|आँख|आंख|नज़र","names":{"en":"Ophthalmology (eyes)","ur-roman":"Ophthalmology (aankh ka doctor)","ur":"آنکھوں کے ماہر (آفتھیلمولوجی)","hi":"नेत्र रोग विशेषज्ञ (ऑप्थल्मोलॉजी)"}},
+{"id":"urology","match":"urine|urinat|peshab|پیشاب|पेशाब","names":{"en":"Urology (urinary system)","ur-roman":"Urology (peshab ka nizam)","ur":"یورولوجی (پیشاب کے نظام کے ماہر)","hi":"यूरोलॉजी (मूत्र रोग विशेषज्ञ)"}},
+{"id":"mental","match":"anxiety|depress|panic|stress|udaas|ghabrahat|پریشانی|اداس|گھبراہٹ|चिंता|उदास|घबराहट|तनाव","names":{"en":"Mental health services (psychiatry/psychology)","ur-roman":"Zehni sehat ki khidmaat (psychiatry)","ur":"ذہنی صحت کی خدمات (سائیکاٹری)","hi":"मानसिक स्वास्थ्य सेवाएँ (मनोचिकित्सा)"}}],
+"tests":[
+{"match":"fever|bukhar|بخار|बुखार","items":[
+{"tier":"likely","names":{"en":"Complete blood count (CBC)","ur-roman":"CBC (khoon ka mukammal test)","ur":"سی بی سی (خون کا مکمل ٹیسٹ)","hi":"सीबीसी (खून की पूरी जाँच)"}},
+{"tier":"possible","names":{"en":"Urine routine exam","ur-roman":"Urine R/E (peshab ka test)","ur":"پیشاب کا معمول کا ٹیسٹ","hi":"पेशाब की सामान्य जाँच"}}]},
+{"match":"stomach|abdom|vomit|nausea|diarrh|constipat|pet |ulti|dast|معدہ|پیٹ|الٹی|دست|पेट|उल्टी|दस्त","items":[
+{"tier":"possible","names":{"en":"Stool routine exam","ur-roman":"Stool R/E (pakhane ka test)","ur":"پاخانے کا معمول کا ٹیسٹ","hi":"मल की सामान्य जाँच"}},
+{"tier":"possible","names":{"en":"Abdominal ultrasound","ur-roman":"Pet ka ultrasound","ur":"پیٹ کا الٹراساؤنڈ","hi":"पेट का अल्ट्रासाउंड"}}]},
+{"match":"heart|palpitat|chest|seene|dil |دل|سینے|धड़कन|सीने|दिल","items":[
+{"tier":"likely","names":{"en":"ECG (heart tracing)","ur-roman":"ECG (dil ki tracing)","ur":"ای سی جی (دل کی ٹریسنگ)","hi":"ईसीजी (दिल की जाँच)"}}]},
+{"match":"urine|urinat|peshab|پیشاب|पेशाब","items":[
+{"tier":"likely","names":{"en":"Urine routine exam","ur-roman":"Urine R/E (peshab ka test)","ur":"پیشاب کا معمول کا ٹیسٹ","hi":"पेशाब की सामान्य जाँच"}},
+{"tier":"possible","names":{"en":"Kidney and bladder ultrasound","ur-roman":"Gurde aur masane ka ultrasound","ur":"گردوں اور مثانے کا الٹراساؤنڈ","hi":"गुर्दे और मूत्राशय का अल्ट्रासाउंड"}}]}]}
+;
