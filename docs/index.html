@@ -8,7 +8,888 @@ textarea,input,select{width:100%;box-sizing:border-box;margin:4px 0;padding:8px}
 <button onclick="a('register')">Register</button><button onclick="a('login')">Login</button><div id="ae"></div></div>
 <div id="chat"><input id="ag" type="number" min="0" max="120" step="0.1" placeholder="Age / عمر / उम्र"><select id="au"><option value="y">years / سال / साल</option><option value="m">months / مہینے / महीने</option></select><input id="wt" type="number" min="1" max="150" step="0.1" placeholder="Weight kg / وزن / वज़न"><select id="sx"><option value="">Sex / جنس / लिंग</option><option value="male">Male / مرد / पुरुष</option><option value="female">Female / عورت / महिला</option></select><div id="log"></div><textarea id="m"></textarea><button id="sb" onclick="s()"></button></div>
 <script>globalThis.process={env:{OTC_PREVIEW:"true",EMERGENCY_NUMBER:"1122"}}</script>
-<script type="module">import { startConsult, answerConsult } from "./src/consultation/flow.js";
+<script type="module">const __mods={},__cache={};
+function __req(k){if(__cache[k])return __cache[k].exports;const m=__cache[k]={exports:{}};__mods[k](m.exports,__req);return m.exports}
+__mods["src/medication/engine.js"]=function(exports,__req){
+// Deterministic medication-safety gate (Spec §7). The LLM never produces doses.
+const kb = __req("knowledge/medications.js").default;
+
+                                                                                                                                      
+                                                                                                                                                                                
+                                                                                               
+                                                                                                              
+                                                                                     
+                                                                                        
+                                                                                                         
+                                                          
+                                                                                                                                                       
+                                                                            
+                                                                                                                                          
+
+const UNREVIEWED = "Record not clinically reviewed / no traceable source.";
+const n = (s        ) => s.trim().toLowerCase();
+
+function checkMedication(i          , entries             = kb.entries              )            {
+  const kbVersion = kb.version;
+  const e = entries.find(x => n(x.generic) === n(i.generic) || x.brands.some(b => n(b) === n(i.generic)));
+  if (!e) return { decision: "escalate_to_clinician", reasons: ["Medicine knowledge base mein nahi hai."], kbVersion };
+  const reasons           = [];
+  if (i.allergies.some(a => e.allergyKeys.map(n).includes(n(a)))) return { decision: "blocked", reasons: ["Documented allergy."], kbVersion };
+  if (i.currentMeds.some(m => e.interactsWith.map(n).includes(n(m)))) reasons.push("Possible interaction with current medicine.");
+  if (e.minAgeYears !== null && (i.ageYears ?? 0) < e.minAgeYears) reasons.push("Age restriction.");
+  if (i.ageYears === undefined || (i.ageYears < 12 && !(e.dosing?.child && e.dosing.reviewed === true && !!e.dosing.reviewedBy))) reasons.push("Pediatric/unknown age.");
+  if (i.pregnant || (e.pregnancyWarning && i.pregnant === undefined)) reasons.push("Pregnancy status requires clinician review.");
+  if (e.contraindications.some(c => (i.conditions ?? []).map(n).includes(n(c)))) reasons.push("Contraindicated condition.");
+  if (!e.reviewed || !e.source || e.source.startsWith("TODO")) reasons.push(UNREVIEWED);
+  if (reasons.length) return { decision: "escalate_to_clinician", reasons, kbVersion };
+  const { dosing, ...safe } = e;
+  return { decision: "info_allowed", reasons: [], entry: safe, dosing: dosing?.text, kbVersion };
+}
+
+exports.UNREVIEWED = UNREVIEWED;
+exports.checkMedication = checkMedication;
+};
+__mods["src/medication/otc.js"]=function(exports,__req){
+// Over-the-counter suggestions (Spec §7-8). Facts come ONLY from the versioned knowledge file and
+// pass the deterministic safety gate. The LLM is not involved. No doses are ever produced.
+const kb = __req("knowledge/medications.js").default;
+const { checkMedication, UNREVIEWED,               } = __req("src/medication/engine.js");
+const { t,                     } = __req("src/i18n/messages.js");
+                                                            
+
+const NO = /^\s*(no|n|nope|nah|na|nh|nhi|nai|nahi|nahin|nahi hai|nahin hai|none|nil|nothing|koi nahi|koi nahi hai|نہیں|نہی|نہ|کوئی نہیں|نہیں ہے|नहीं|नही|नहीं है|कोई नहीं)\s*[.!۔]*\s*$/i;
+const isNo = (s         ) => s !== undefined && NO.test(s.trim()); // missing answer is NOT treated as "no"
+const tokens = (s        ) => s.split(/[,;،]|\s(?:and|aur|और)\s/i).map(x => x.trim().toLowerCase()).filter(Boolean);
+
+                                                                                                                                                                       
+                                                                                             
+
+function suggestOtc(c        ) {
+  const L = c.lang, a = c.answers;
+  const out = { status: "none"             , title: t(L, "otc_title"), items: []             , notes: []            , doseNote: t(L, "otc_dose"), stopNote: t(L, "otc_stop"),
+    labels: { generic: t(L, "otc_generic"), pk: t(L, "otc_pk"), india: t(L, "otc_in"), uses: t(L, "otc_uses"), warning: t(L, "otc_warning"), how: t(L, "otc_how"), pending: t(L, "otc_pending_brands") } };
+  if (c.risk !== "routine") return { ...out, status: "see_doctor"             , notes: [t(L, "otc_see_doctor")] };
+
+  const text = `${c.complaint} ${a.associated ?? ""}`;
+  const entries = (c.entries ?? (kb.entries                         )).filter(e => e.otc && e.match && new RegExp(e.match, "i").test(text));
+  if (!entries.length) return out;
+
+  // Anything beyond a clean history goes to a pharmacist (conservative starter rule, clinicians may relax it).
+  const unclear = !isNo(a.history) || !isNo(a.medicines) || !isNo(a.allergies);
+  const preg = (c.profile.ageYears ?? 99) < 12 ? false : a.pregnancy === undefined ? (c.profile.sex === "female" ? undefined : c.profile.sex === "male" ? false : undefined) : !isNo(a.pregnancy);
+  const preview = process.env.OTC_PREVIEW === "true";
+  let referToPharmacist = false, previewUsed = false;
+
+  for (const e of entries) {
+    const r = checkMedication({ generic: e.generic, ageYears: c.profile.ageYears, pregnant: preg,
+      allergies: isNo(a.allergies) ? [] : tokens(a.allergies ?? ""), currentMeds: [], conditions: [] }, [e]);
+    const reasons = r.reasons.filter(x => x !== UNREVIEWED), unreviewed = r.reasons.includes(UNREVIEWED);
+    if (r.decision === "blocked" || reasons.length || unclear || (unreviewed && !preview)) { referToPharmacist = true; continue; }
+    // Children (<12): only with a pharmacist-VERIFIED weight-based rule, a known weight, and an allowed age.
+    const dr = e.dosing, ch = dr?.child, ageY = c.profile.ageYears, kg = c.profile.weightKg;
+    const drOk = dr?.reviewed === true && !!dr.reviewedBy && !!dr.source && !dr.source.startsWith("TODO");
+    const isChild = ageY !== undefined && ageY < 12;
+    const childOk = isChild && !!ch && drOk && kg !== undefined && ageY  * 12 >= ch .minAgeMonths;
+    if (isChild && !childOk) { referToPharmacist = true; continue; }
+    if (unreviewed) previewUsed = true;
+    const b = e.brandsByCountry ?? { PK: [], IN: [] };
+    // Doses: adults (18+) only, and only if a pharmacist verified them (reviewedBy + real source) or demo flag is on.
+    const rule = e.dosing, ad = rule?.adult, lines           = [];
+    const verified = rule?.reviewed === true && !!rule.reviewedBy && !!rule.source && !rule.source.startsWith("TODO");
+    const doseDraft = !verified;
+    if (childOk && ch) {
+      const r1 = (x        ) => Math.round(x * 10) / 10;
+      lines.push(t(L, "dose_child", { kg: kg , mg: Math.min(r1(ch.mgPerKgPerDose * kg ), ch.maxMgPerDose ?? Infinity) }),
+        t(L, "dose_gap", { h: ch.minGapHours }),
+        t(L, "dose_max", { max: `${Math.min(r1(ch.maxMgPerKgPer24h * kg ), ch.maxMgPer24h ?? Infinity)} mg` }));
+      if (ch.maxDays) lines.push(t(L, "dose_days", { d: ch.maxDays }));
+      lines.push(t(L, "dose_child_form"));
+    }
+    if (ad && (c.profile.ageYears ?? 0) >= 18 && (verified || process.env.OTC_SHOW_DRAFT_DOSES === "true")) {
+      if (doseDraft) lines.push(t(L, "dose_draft"));
+      lines.push(t(L, "dose_adult", { amount: ad.amount }));
+      if (ad.minGapHours) lines.push(t(L, "dose_gap", { h: ad.minGapHours }));
+      if (ad.max24h) lines.push(t(L, "dose_max", { max: ad.max24h }));
+      if (ad.maxDays) lines.push(t(L, "dose_days", { d: ad.maxDays }));
+    }
+    out.items.push({ generic: e.generic, chemicalName: e.chemicalName, brandsPK: [...b.PK].sort(), brandsIN: [...b.IN].sort(),
+      uses: e.usesKey ? t(L, e.usesKey       ) : "", how: (e.howKeys ?? []).map(k => t(L, k       )), warning: e.warnKey ? t(L, e.warnKey       ) : "", doseLines: lines, doseDraft: lines.length > 0 && doseDraft });
+  }
+  if (out.items.some((i     ) => i.doseLines.length)) out.doseNote = t(L, "otc_dose_verify");
+  if (previewUsed) out.notes.push(t(L, "otc_preview"));
+  if (referToPharmacist) out.notes.push(t(L, "otc_see_pharmacist"));
+  out.status = out.items.length ? (previewUsed ? "preview" : "suggestions") : "see_pharmacist";
+  return out;
+}
+
+exports.isNo = isNo;
+exports.suggestOtc = suggestOtc;
+};
+__mods["src/audit/audit.js"]=function(exports,__req){
+const audit = () => {}; // demo: no server, nothing is stored
+
+exports.audit = audit;
+};
+__mods["src/safety/triage.js"]=function(exports,__req){
+// Deterministic red-flag screening. Runs BEFORE any LLM call (Spec §6).
+// Rules are data; clinical team must review/extend before real deployment.
+                                                      
+                                                                                   
+
+const RULES         = [
+  { id: "chest_pain", risk: "emergency", label: "Severe chest pain",
+    patterns: [/chest (pain|pressure|tightness)/i, /seene? (me|mein|main) (shadeed |bohat )?dard/i, /سینے میں (.{0,10} )?درد/, /सीने (में|मे) (.{0,10} )?दर्द/] },
+  { id: "breathing", risk: "emergency", label: "Severe breathing difficulty",
+    patterns: [/(can'?t|cannot|unable to) breathe/i, /severe (shortness of breath|breathing)/i, /saans (nahi|lene mein (shadeed )?mushkil)/i, /سانس (نہیں|لینے میں)/, /(सांस|साँस) (नहीं|लेने में)/] },
+  { id: "stroke", risk: "emergency", label: "Stroke-like symptoms",
+    patterns: [/face droop/i, /slurred speech/i, /sudden (weakness|numbness) (on|in) (one|my) (side|arm|leg)/i, /zubaan (larkhara|lar khara)/i] },
+  { id: "unconscious", risk: "emergency", label: "Unconsciousness",
+    patterns: [/unconscious|passed out|not responding|behosh|بے ہوش|बेहोश/i] },
+  { id: "seizure", risk: "emergency", label: "Seizure",
+    patterns: [/seizure|convulsion|fits?\b|daura|دورہ پڑ|दौरा पड़/i] },
+  { id: "bleeding", risk: "emergency", label: "Severe bleeding",
+    patterns: [/(severe|heavy|uncontrol\w*) bleeding/i, /khoon (nahi ruk|bohat beh)/i, /خون (بند نہیں|بہت بہ)/, /खून (नहीं रुक|बहुत बह)/] },
+  { id: "anaphylaxis", risk: "emergency", label: "Severe allergic reaction",
+    patterns: [/anaphyla/i, /(throat|tongue|lips?) (swelling|swollen)/i] },
+  { id: "self_harm", risk: "emergency", label: "Risk of self-harm",
+    patterns: [/(kill|hurt) myself|suicid|khudkushi|خودکشی|आत्महत्या/i] },
+  { id: "high_fever_infant", risk: "urgent", label: "Fever in infant",
+    patterns: [/(newborn|infant|baby).*(fever|bukhar)/i] },
+];
+
+                                                                                      
+
+function triage(text        )               {
+  const matched = RULES.filter(r => r.patterns.some(p => p.test(text))).map(r => ({ id: r.id, label: r.label, risk: r.risk }));
+  const risk       = matched.some(m => m.risk === "emergency") ? "emergency" : matched.length ? "urgent" : "routine";
+  return { risk, matched: matched.map(({ id, label }) => ({ id, label })) };
+}
+
+const emergencyMessage = (num        ) =>
+  `Yeh symptoms emergency ho sakte hain. Fori tor par emergency number (${num}) par call karein ya nazdeeki hospital jayein. Khud ilaaj ki koshish na karein.`;
+
+exports.RULES = RULES;
+exports.triage = triage;
+exports.emergencyMessage = emergencyMessage;
+};
+__mods["src/consultation/flow.js"]=function(exports,__req){
+const randomUUID = () => globalThis.crypto.randomUUID();
+const { triage } = __req("src/safety/triage.js");
+const { audit } = __req("src/audit/audit.js");
+const { t,           } = __req("src/i18n/messages.js");
+const { questionText, nextSlot, buildAssessment, isFever, normalizeDigits,                                       } = __req("src/consultation/questions.js");
+
+const sessions = new Map                 (); // TODO: persist in-flight sessions in PostgreSQL
+const emergency = (userId        , matched                                 , lang      ) => {
+  audit("consult.emergency", userId, matched.map(m => m.id).join(","));
+  return { status: "emergency"         , redFlags: matched, reply: t(lang, "emergency", { n: process.env.EMERGENCY_NUMBER ?? "1122" }) };
+};
+const ask = (s         ) => {
+  const slot = nextSlot(s);
+  if (slot) { s.asked.push(slot); return { status: "question"         , sessionId: s.id, slot, question: questionText(s.lang, slot) }; }
+  const flags = triage(Object.values(s.answers).join(" ") + " " + s.complaint).matched.map(m => m.label);
+  audit("consult.assessment", s.userId);
+  sessions.delete(s.id);
+  return { status: "assessment"         , assessment: buildAssessment(s, flags), disclaimer: t(s.lang, "disclaimer") };
+};
+
+const TRIVIAL = /^\s*(ok|okay|k|thanks|thank you|thx|hi|hello|hmm|yes|no|salam|assalam o alaikum|shukriya|shukria|theek hai|thik hai|theek|thik|ji|haan|han|nahi|nh|شکریہ|ٹھیک ہے|جی|ہاں|سلام|धन्यवाद|शुक्रिया|ठीक है|हाँ|हां|नमस्ते)[\s.!۔?]*$/i;
+function startConsult(userId        , complaint        , profile          = {}, lang       = "ur-roman") {
+  if (TRIVIAL.test(complaint)) return { status: "chat"         , reply: t(lang, "ack") }; // "ok", "thanks", "hello" are not a new complaint
+  const tr = triage(complaint);                      // red flags FIRST
+  if (tr.risk === "emergency") return emergency(userId, tr.matched, lang);
+  if (isFever(complaint) && profile.ageYears !== undefined && profile.ageYears * 12 < 3) { // baby under 3 months with fever (placeholder rule for clinician review)
+    audit("consult.infant_fever", userId, "infant_fever");
+    return { status: "urgent_stop"         , reply: t(lang, "infant_fever") };
+  }
+  const s          = { id: randomUUID(), userId, lang, complaint, profile, answers: {}, asked: [] };
+  sessions.set(s.id, s);
+  return ask(s);
+}
+
+function answerConsult(userId        , sessionId        , text        ) {
+  const s = sessions.get(sessionId);
+  if (!s || s.userId !== userId) return { status: "error"         , error: "Session not found." };
+  const tr = triage(text);                           // every answer is screened too
+  if (tr.risk === "emergency") { sessions.delete(s.id); return emergency(userId, tr.matched, s.lang); }
+  const slot = s.asked[s.asked.length - 1]        ;
+  s.answers[slot] = text.slice(0, 500);
+  if (slot === "weight") { const w = parseFloat(normalizeDigits(text)); if (w >= 1 && w <= 150) s.profile.weightKg = w; }
+  return ask(s);
+}
+
+exports.startConsult = startConsult;
+exports.answerConsult = answerConsult;
+};
+__mods["src/consultation/questions.js"]=function(exports,__req){
+// Adaptive structured questioning (Spec §5), multilingual. Deterministic; no diagnosis produced here.
+const { t,                     } = __req("src/i18n/messages.js");
+const { suggest } = __req("src/referral/referral.js");
+const { suggestOtc } = __req("src/medication/otc.js");
+                                                                                                                                      
+                                                                                                                                         
+                                                                                          
+                                                                                                                                                               
+
+const questionText = (lang      , slot      ) => t(lang, `q_${slot}`       );
+const SYSTEMIC = /fever|bukhar|cough|khansi|thakan|fatigue|weakness|kamzori|cold|zukam|بخار|کھانسی|تھکن|کمزوری|بुखار|बुखार|खांसी|खाँसी|थकान|कमज़ोरी/i;
+
+function normalizeDigits(s        )         {
+  return s.replace(/[\u0660-\u0669\u06F0-\u06F9\u0966-\u096F]/g, ch => {
+    const c = ch.charCodeAt(0);
+    return String(c - (c >= 0x966 && c <= 0x96f ? 0x966 : c >= 0x6f0 ? 0x6f0 : 0x660));
+  });
+}
+const parseSeverity = (s        ) => parseInt(normalizeDigits(s), 10);
+
+const isFever = (c        ) => /fever|bukhar|بخار|बुखार/i.test(c);
+const PAIN = /pain|dard|ache|درد|दर्द/i;
+function applicableSlots(s                                        )         {
+  const age = s.profile.ageYears, child = age !== undefined && age < 12, slots         = [];
+  if (isFever(s.complaint)) slots.push("feverDays", "feverPattern", "feverMax");
+  else {
+    slots.push("onset", "duration", "severity");
+    if (!SYSTEMIC.test(s.complaint)) slots.push("location");
+    if (PAIN.test(s.complaint)) slots.push("painType", "painTrigger");
+  }
+  slots.push("associated");
+  if (child) { if (s.profile.weightKg === undefined) slots.push("weight"); slots.push("childDrinking", "childUrine", "childActivity"); }
+  const a2 = age ?? 25;
+  if (s.profile.sex === "female" && a2 >= 12 && a2 <= 55) slots.push("pregnancy");
+  slots.push("history", "allergies", "medicines");
+  return slots;
+}
+
+// Deterministic "see a doctor" rules from the history. PLACEHOLDER thresholds: clinicians must review/tune.
+const BAD_DRINK = /less|not at all|refus|kam|bilkul nahi|nahi pi|کم|بالکل نہیں|कम|बिल्कुल नहीं|नहीं पी/i;
+const BAD_URINE = /less|none|not at all|kam|nahi|کم|نہیں|कम|नहीं/i;
+const BAD_ACTIVITY = /sleepy|drowsy|lethargic|floppy|sust|so raha|سست|سو رہا|सुस्त|सो रहा/i;
+function urgentReasons(s                                      )           {
+  const a = s.answers, r           = [];
+  const days = parseInt(normalizeDigits(a.feverDays ?? ""), 10), lim = Number(process.env.FEVER_DOCTOR_DAYS) > 0 ? Number(process.env.FEVER_DOCTOR_DAYS) : 3;
+  if (days >= lim) r.push("fever_days");
+  let tmax = parseFloat(normalizeDigits(a.feverMax ?? ""));
+  if (tmax > 45) tmax = ((tmax - 32) * 5) / 9; // looks like Fahrenheit
+  if (tmax >= 40) r.push("fever_high");
+  if (s.profile.ageYears !== undefined && s.profile.ageYears < 12) {
+    if (BAD_DRINK.test(a.childDrinking ?? "")) r.push("child_drinking");
+    if (BAD_URINE.test(a.childUrine ?? "")) r.push("child_urine");
+    if (BAD_ACTIVITY.test(a.childActivity ?? "")) r.push("child_activity");
+  }
+  return r;
+}
+const nextSlot = (s         )              => applicableSlots(s).find(sl => s.answers[sl] === undefined) ?? null;
+
+function buildAssessment(s         , redFlagLabels          ) {
+  const L = s.lang, reasons = urgentReasons(s), risk = redFlagLabels.length || reasons.length || parseSeverity(s.answers.severity ?? "") >= 9 ? "urgent" : "routine";
+  const sg = suggest([s.complaint, ...Object.values(s.answers)].join(" "), L);
+  return {
+    reportedFacts: { complaint: s.complaint, ...s.answers }, urgentReasons: reasons,
+    factsList: Object.entries(s.answers).map(([k, v]) => ({ q: questionText(L, k        ), a: v })),
+    possibleExplanations: []            , // TODO Phase 6: from RAG with citations, never from LLM alone
+    uncertainty: t(L, "uncertainty"), risk,
+    recommendedNextStep: t(L, risk === "urgent" ? "next_urgent" : "next_routine"),
+    warningSigns: t(L, "warning"), followUp: t(L, "followup"),
+    referral: sg.referral, tests: sg.tests, reviewNote: sg.reviewNote,
+    otc: suggestOtc({ complaint: s.complaint, answers: s.answers, profile: s.profile, lang: L, risk }),
+  };
+}
+
+exports.questionText = questionText;
+exports.normalizeDigits = normalizeDigits;
+exports.parseSeverity = parseSeverity;
+exports.isFever = isFever;
+exports.applicableSlots = applicableSlots;
+exports.urgentReasons = urgentReasons;
+exports.nextSlot = nextSlot;
+exports.buildAssessment = buildAssessment;
+};
+__mods["src/referral/referral.js"]=function(exports,__req){
+// Specialist + test suggestions (Spec §10). Comes from a versioned knowledge file, never from the LLM.
+const data = __req("knowledge/referrals.js").default;
+const { t,           } = __req("src/i18n/messages.js");
+                                    
+const hit = (re        , text        ) => new RegExp(re, "i").test(text);
+
+function suggest(text        , lang      ) {
+  const specialties = data.specialties.filter(s => hit(s.match, text)).map(s => (s.names         )[lang]);
+  const seen = new Map                                        ();
+  for (const x of data.tests) if (hit(x.match, text)) for (const i of x.items) {
+    const k = (i.names         ).en, prev = seen.get(k);
+    if (!prev || (prev.tier === "possible" && i.tier === "likely")) seen.set(k, { tier: i.tier, name: (i.names         )[lang] });
+  }
+  const all = [...seen.values()], pick = (tier        ) => all.filter(a => a.tier === tier).map(a => a.name);
+  return {
+    referral: { title: t(lang, "ref_title"), specialties },
+    tests: { note: t(lang, "tests_note"), likelyTitle: t(lang, "tests_likely"), likely: pick("likely"), possibleTitle: t(lang, "tests_possible"), possible: pick("possible") },
+    reviewNote: data.reviewed ? null : t(lang, "review_note"),
+  };
+}
+
+exports.suggest = suggest;
+};
+__mods["src/i18n/messages.js"]=function(exports,__req){
+// Patient-facing text in 4 languages. NOTE: translations need review by native-speaker clinicians before launch.
+                                                   
+const LANGS         = ["en", "ur", "ur-roman", "hi"];
+const normalizeLang = (x         )       => ((LANGS            ).includes(String(x)) ? (x        ) : "ur-roman");
+                              
+const m = (en        , ur        , roman        , hi        )    => ({ en, ur, "ur-roman": roman, hi });
+
+const MSG = {
+  emergency: m("These symptoms may be an emergency. Call emergency services ({n}) or go to the nearest hospital now. Do not try to treat yourself.",
+    "یہ علامات ایمرجنسی ہو سکتی ہیں۔ فوراً ایمرجنسی نمبر ({n}) پر کال کریں یا قریبی ہسپتال جائیں۔ خود علاج کی کوشش نہ کریں۔",
+    "Yeh symptoms emergency ho sakte hain. Fori tor par emergency number ({n}) par call karein ya nazdeeki hospital jayein. Khud ilaaj ki koshish na karein.",
+    "ये लक्षण आपातकालीन हो सकते हैं। तुरंत आपातकालीन नंबर ({n}) पर कॉल करें या नज़दीकी अस्पताल जाएँ। खुद इलाज करने की कोशिश न करें।"),
+  disclaimer: m("This is information only, not medical advice or a prescription.", "یہ صرف معلومات ہیں، ڈاکٹر کا مشورہ یا نسخہ نہیں۔",
+    "Yeh sirf maloomat hain, doctor ka mashwara ya prescription nahi.", "यह केवल जानकारी है, डॉक्टर की सलाह या पर्चा नहीं।"),
+  q_onset: m("When did this problem start?", "یہ تکلیف کب شروع ہوئی؟", "Yeh takleef kab shuru hui?", "यह तकलीफ़ कब शुरू हुई?"),
+  q_duration: m("How long has it lasted, and is it constant or does it come and go?", "کتنے عرصے سے ہے، اور کیا لگاتار ہے یا آتی جاتی ہے؟",
+    "Ab tak kitne arse se hai, aur kya lagataar hai ya aati jaati hai?", "कितने समय से है, और क्या लगातार रहती है या आती-जाती है?"),
+  q_severity: m("How severe is it? Give a number from 1 (mild) to 10 (worst).", "تکلیف کتنی شدید ہے؟ 1 (ہلکی) سے 10 (سب سے زیادہ) میں نمبر بتائیں۔",
+    "Takleef kitni shadeed hai? 1 (halki) se 10 (sab se zyada) mein number batayein.", "तकलीफ़ कितनी तेज़ है? 1 (हल्की) से 10 (सबसे ज़्यादा) में नंबर बताएँ।"),
+  q_location: m("Where in the body is it?", "تکلیف جسم کے کس حصے میں ہے؟", "Takleef jism ke kis hisse mein hai?", "तकलीफ़ शरीर के किस हिस्से में है?"),
+  q_associated: m("Any other symptoms with it (e.g. fever, vomiting, dizziness, cough)? Write 'no' if none.",
+    "اس کے ساتھ اور کوئی علامات ہیں (جیسے بخار، الٹی، چکر، کھانسی)؟ نہ ہوں تو 'نہیں' لکھیں۔",
+    "Is ke saath aur koi symptoms hain? (jaise bukhar, ulti, chakkar, khansi). Na hon to 'nahi' likhein.",
+    "इसके साथ और कोई लक्षण हैं (जैसे बुखार, उल्टी, चक्कर, खाँसी)? न हों तो 'नहीं' लिखें।"),
+  q_pregnancy: m("Are you pregnant, or could you be?", "کیا آپ حاملہ ہیں یا ہو سکتی ہیں؟", "Kya aap hamla (pregnant) hain ya ho sakti hain?", "क्या आप गर्भवती हैं या हो सकती हैं?"),
+  q_history: m("Do you have any existing conditions (e.g. diabetes, blood pressure, heart, kidney, liver)? Write 'no' if none.",
+    "کیا آپ کو پہلے سے کوئی بیماری ہے (جیسے شوگر، بلڈ پریشر، دل، گردے، جگر)؟ نہ ہو تو 'نہیں' لکھیں۔",
+    "Kya aap ko pehle se koi bimari hai (jaise sugar, BP, dil, gurde, jigar)? Na ho to 'nahi'.",
+    "क्या आपको पहले से कोई बीमारी है (जैसे शुगर, बीपी, दिल, गुर्दे, जिगर)? न हो तो 'नहीं' लिखें।"),
+  q_allergies: m("Any allergy to a medicine or anything else? Write 'no' if none.", "کسی دوا یا چیز سے الرجی ہے؟ نہ ہو تو 'نہیں' لکھیں۔",
+    "Kisi dawai ya cheez se allergy hai? Na ho to 'nahi'.", "किसी दवा या चीज़ से एलर्जी है? न हो तो 'नहीं' लिखें।"),
+  q_medicines: m("Are you taking any medicines right now? Write 'no' if none.", "ابھی کوئی دوا استعمال کر رہے ہیں؟ نہ ہو تو 'نہیں' لکھیں۔",
+    "Abhi koi dawai istemal kar rahe hain? Na ho to 'nahi'.", "अभी कोई दवा ले रहे हैं? न हो तो 'नहीं' लिखें।"),
+  uncertainty: m("This is not a diagnosis. It is a summary of what you reported; the actual cause cannot be determined without a doctor's examination.",
+    "یہ تشخیص نہیں ہے۔ یہ صرف آپ کی بتائی ہوئی معلومات کا خلاصہ ہے، اور ڈاکٹر کے معائنے کے بغیر اصل وجہ طے نہیں ہو سکتی۔",
+    "Yeh tashkhees nahi hai. Yeh sirf aap ki batayi hui maloomat ka khulasa hai, aur doctor ke muaaynay ke baghair asal wajah tay nahi ho sakti.",
+    "यह निदान नहीं है। यह केवल आपकी बताई जानकारी का सार है, और डॉक्टर की जाँच के बिना असली कारण तय नहीं हो सकता।"),
+  next_urgent: m("See a doctor as soon as possible.", "جلد از جلد کسی ڈاکٹر سے رجوع کریں۔", "Jald az jald kisi doctor se rujoo karein.", "जल्द से जल्द किसी डॉक्टर से मिलें।"),
+  next_routine: m("If it gets worse, does not improve, or new symptoms appear, see a doctor.", "اگر تکلیف بڑھے، ٹھیک نہ ہو، یا نئی علامات آئیں تو ڈاکٹر سے رجوع کریں۔",
+    "Agar takleef barhe, theek na ho, ya naye symptoms aayein to doctor se rujoo karein.", "अगर तकलीफ़ बढ़े, ठीक न हो, या नए लक्षण आएँ तो डॉक्टर से मिलें।"),
+  warning: m("Warning signs: severe chest pain, severe difficulty breathing, fainting or seizure, heavy bleeding.",
+    "خطرے کی علامات: سینے میں شدید درد، سانس لینے میں شدید مشکل، بے ہوشی یا دورہ، بہت زیادہ خون بہنا۔",
+    "Khatray ki alamaat: seene mein shadeed dard, saans mein shadeed mushkil, behoshi ya daura, bohat zyada khoon bahna.",
+    "ख़तरे के लक्षण: सीने में तेज़ दर्द, साँस लेने में बहुत तकलीफ़, बेहोशी या दौरा, बहुत ज़्यादा खून बहना।"),
+  followup: m("You will be asked later whether it got better, stayed the same, or got worse.", "بعد میں آپ سے پوچھا جائے گا کہ تکلیف بہتر ہوئی، ویسی ہی رہی، یا بڑھ گئی۔",
+    "Aap se baad mein poochha jayega ke takleef behtar hui, waisi hi rahi, ya barh gayi.", "बाद में आपसे पूछा जाएगा कि तकलीफ़ बेहतर हुई, वैसी ही रही, या बढ़ गई।"),
+  fu_urgent: m("If it is getting worse or new symptoms appeared, see a doctor as soon as possible.", "تکلیف بڑھنے یا نئی علامات آنے پر جلد از جلد ڈاکٹر سے رجوع کریں۔",
+    "Takleef barhne ya naye symptoms aane par jald az jald doctor se rujoo karein.", "तकलीफ़ बढ़ने या नए लक्षण आने पर जल्द से जल्द डॉक्टर से मिलें।"),
+  fu_same: m("It is unchanged. If it does not improve soon, see a doctor.", "تکلیف ویسی ہی ہے۔ اگر جلد بہتر نہ ہو تو ڈاکٹر سے رجوع کریں۔",
+    "Takleef waisi hi hai. Agar jald behtar na ho to doctor se rujoo karein.", "तकलीफ़ वैसी ही है। अगर जल्द बेहतर न हो तो डॉक्टर से मिलें।"),
+  fu_ok: m("Good to hear. If it comes back or gets worse, see a doctor.", "یہ اچھی بات ہے۔ اگر تکلیف دوبارہ بڑھے تو ڈاکٹر سے رجوع کریں۔",
+    "Yeh achi baat hai. Agar takleef dobara barhe to doctor se rujoo karein.", "यह अच्छी बात है। अगर तकलीफ़ फिर बढ़े तो डॉक्टर से मिलें।"),
+  ref_title: m("Specialist you could consider (not a diagnosis):", "ممکنہ ماہر ڈاکٹر (یہ تشخیص نہیں):", "Mumkin specialist (yeh tashkhees nahi):", "संभावित विशेषज्ञ (यह निदान नहीं):"),
+  tests_likely: m("Tests a doctor may consider (more likely):", "ٹیسٹ جو ڈاکٹر کروا سکتا ہے (زیادہ ممکن):", "Tests jo doctor kara sakta hai (zyada mumkin):", "जाँचें जो डॉक्टर करा सकता है (ज़्यादा संभव):"),
+  tests_possible: m("Tests that are possible but less certain:", "ٹیسٹ جو ممکن ہیں مگر کم یقینی:", "Tests jo mumkin hain lekin kam yaqeeni:", "जाँचें जो संभव हैं पर कम निश्चित:"),
+  tests_note: m("Only a doctor decides which tests are needed; some may not be necessary.", "کون سے ٹیسٹ ضروری ہیں یہ صرف ڈاکٹر طے کرے گا؛ کچھ کی ضرورت نہ بھی ہو۔",
+    "Kaun se tests zaroori hain yeh sirf doctor tay karega; kuch ki zaroorat na bhi ho.", "कौन-सी जाँचें ज़रूरी हैं यह सिर्फ़ डॉक्टर तय करेगा; कुछ की ज़रूरत न भी हो सकती है।"),
+  review_note: m("These suggestions are a starter list and have not yet been reviewed by a clinician.", "یہ تجاویز ابھی ابتدائی ہیں اور کسی ڈاکٹر نے ان کا جائزہ نہیں لیا۔",
+    "Yeh suggestions abhi shuruati hain aur kisi doctor ne review nahi kiye.", "ये सुझाव अभी शुरुआती हैं और किसी डॉक्टर ने इनकी समीक्षा नहीं की है।"),
+  otc_title: m("Over-the-counter medicines commonly used for this (information only, not a prescription):", "اس تکلیف میں عام طور پر استعمال ہونے والی بغیر نسخے کی دوائیں (صرف معلومات، نسخہ نہیں):",
+    "Is takleef mein aam tor par istemal hone wali over-the-counter dawaiyan (sirf maloomat, nuskha nahi):", "इस तकलीफ़ में आम तौर पर इस्तेमाल होने वाली बिना पर्चे की दवाएँ (सिर्फ़ जानकारी, पर्चा नहीं):"),
+  otc_generic: m("Generic (chemical) name:", "جنیرک (کیمیکل) نام:", "Generic (chemical) naam:", "जेनेरिक (रासायनिक) नाम:"),
+  otc_pk: m("Brands in Pakistan:", "پاکستان میں برانڈز:", "Pakistan mein brands:", "पाकिस्तान में ब्रांड:"),
+  otc_in: m("Brands in India:", "انڈیا میں برانڈز:", "India mein brands:", "भारत में ब्रांड:"),
+  otc_uses: m("Commonly used for:", "عام طور پر استعمال:", "Aam tor par istemal:", "आम तौर पर इस्तेमाल:"),
+  otc_warning: m("Important:", "ضروری:", "Zaroori:", "ज़रूरी:"),
+  otc_dose: m("Dose and duration: read the pack label or ask a pharmacist or doctor. This app does not give doses.",
+    "مقدار اور مدت: دوا کے پیک پر لکھی ہدایات پڑھیں یا فارماسسٹ/ڈاکٹر سے پوچھیں۔ یہ ایپ ڈوز نہیں بتاتی۔",
+    "Miqdaar aur muddat: dawai ke pack par likhi hidayat parhein ya pharmacist/doctor se poochhein. Yeh app dose nahi batati.",
+    "मात्रा और अवधि: दवा के पैक पर लिखी हिदायत पढ़ें या फ़ार्मासिस्ट/डॉक्टर से पूछें। यह ऐप डोज़ नहीं बताती।"),
+  otc_see_pharmacist: m("Before taking any medicine, please ask a pharmacist or doctor; your answers need a professional check.",
+    "کوئی بھی دوا لینے سے پہلے فارماسسٹ یا ڈاکٹر سے پوچھیں؛ آپ کے جوابات کو پیشہ ورانہ جانچ کی ضرورت ہے۔",
+    "Koi bhi dawai lene se pehle pharmacist ya doctor se poochhein; aap ke jawabat ko professional jaanch ki zaroorat hai.",
+    "कोई भी दवा लेने से पहले फ़ार्मासिस्ट या डॉक्टर से पूछें; आपके जवाबों की पेशेवर जाँच ज़रूरी है।"),
+  otc_see_doctor: m("Your situation may be serious, so please see a doctor instead of treating yourself.", "آپ کی صورتِ حال سنگین ہو سکتی ہے، اس لیے خود علاج کے بجائے ڈاکٹر سے ملیں۔",
+    "Aap ki surat-e-haal serious ho sakti hai, is liye khud ilaaj ke bajaye doctor se milein.", "आपकी स्थिति गंभीर हो सकती है, इसलिए खुद इलाज के बजाय डॉक्टर से मिलें।"),
+  otc_pending_brands: m("brand list pending pharmacist review", "برانڈ کی فہرست فارماسسٹ کے جائزے کی منتظر", "brand list pharmacist ke review ka intezar", "ब्रांड सूची फ़ार्मासिस्ट की समीक्षा के इंतज़ार में"),
+  otc_preview: m("PREVIEW: this medicine data has not yet been reviewed by a pharmacist. Verify before use.", "پریویو: اس دوا کا ڈیٹا ابھی کسی فارماسسٹ نے ریویو نہیں کیا۔ استعمال سے پہلے تصدیق کریں۔",
+    "PREVIEW: is dawai ka data abhi kisi pharmacist ne review nahi kiya. Istemal se pehle tasdeeq karein.", "प्रीव्यू: इस दवा के डेटा की अभी किसी फ़ार्मासिस्ट ने समीक्षा नहीं की है। इस्तेमाल से पहले पुष्टि करें।"),
+  u_fever_pain: m("fever and mild pain (e.g. headache)", "بخار اور ہلکا درد (جیسے سر درد)",
+    "bukhar aur halka dard (jaise sar dard)", "बुखार और हल्का दर्द (जैसे सिरदर्द)"),
+  u_pain_inflam: m("muscle, joint, tooth or period pain", "پٹھوں، جوڑوں، دانت یا ماہواری کا درد",
+    "pathon, jodon, daant ya mahwari ka dard", "मांसपेशियों, जोड़ों, दाँत या माहवारी का दर्द"),
+  u_allergy: m("allergy symptoms such as sneezing, runny nose and itching", "الرجی کی علامات جیسے چھینکیں، ناک بہنا اور خارش",
+    "allergy ke symptoms jaise chheenkein, naak behna aur kharish", "एलर्जी के लक्षण जैसे छींक, नाक बहना और खुजली"),
+  u_acidity: m("acidity and heartburn", "تیزابیت اور کھٹی ڈکاریں",
+    "tezabiyat aur khatti dakarein (acidity)", "एसिडिटी और खट्टी डकारें"),
+  u_dehydration: m("loss of water and salts during diarrhoea", "دست کے دوران پانی اور نمکیات کی کمی",
+    "dast mein paani aur namkiyat ki kami", "दस्त के दौरान पानी और नमक की कमी"),
+  u_congestion: m("blocked nose", "بند ناک",
+    "band naak", "बंद नाक"),
+  u_fungal: m("fungal skin infections such as ringworm", "جلد کا فنگل انفیکشن جیسے داد",
+    "jild ki fungal infection jaise dad", "त्वचा का फंगल संक्रमण जैसे दाद"),
+  u_wound: m("cleaning minor cuts and scrapes", "چھوٹے زخم اور خراشیں صاف کرنا",
+    "chhote zakhm aur kharonch saaf karna", "छोटे घाव और खरोंचें साफ़ करना"),
+  u_muscle_gel: m("local muscle and joint pain", "پٹھوں اور جوڑوں کے مقامی درد",
+    "pathon aur jodon ke muqami dard", "मांसपेशियों और जोड़ों के स्थानीय दर्द"),
+  h_water: m("Swallow with a full glass of water.", "پورے گلاس پانی کے ساتھ نگلیں۔",
+    "Poore glass paani ke saath nigalein.", "पूरे गिलास पानी के साथ निगलें।"),
+  h_any_time: m("Can be taken at any time of day, with or without food.", "دن میں کسی بھی وقت، کھانے کے ساتھ یا کھانے کے بغیر لی جا سکتی ہے۔",
+    "Din mein kisi bhi waqt, khane ke saath ya bina khane ke li ja sakti hai.", "दिन में किसी भी समय, खाने के साथ या बिना खाने के ली जा सकती है।"),
+  h_after_food: m("Take after food, not on an empty stomach.", "کھانے کے بعد لیں، خالی پیٹ نہیں۔",
+    "Khane ke baad lein, khali pait nahi.", "खाने के बाद लें, खाली पेट नहीं।"),
+  h_evening: m("If it makes you sleepy, take it in the evening.", "اگر نیند آتی ہے تو شام کو لیں۔",
+    "Agar neend aati hai to shaam ko lein.", "अगर नींद आती है तो शाम को लें।"),
+  h_after_meals_bed: m("Take after meals and at bedtime.", "کھانے کے بعد اور سونے سے پہلے لیں۔",
+    "Khane ke baad aur sone se pehle lein.", "खाने के बाद और सोने से पहले लें।"),
+  h_ors: m("Dissolve in clean, boiled and cooled water exactly as written on the sachet, and sip small amounts often.", "ساشے پر لکھے طریقے کے مطابق صاف، ابال کر ٹھنڈے کیے ہوئے پانی میں گھول کر تھوڑا تھوڑا بار بار پئیں۔",
+    "Sachet par likhe tareeqe ke mutabiq saaf, ubaal kar thande kiye hue paani mein ghol kar thora thora baar baar piyein.", "सैशे पर लिखे तरीके से साफ़, उबालकर ठंडे किए पानी में घोलें और थोड़ा-थोड़ा बार-बार पिएँ।"),
+  h_nasal: m("Use in the nose only, as written on the pack, and only for the number of days on the label.", "صرف ناک میں، پیک پر لکھے مطابق، اور صرف لیبل پر لکھے دنوں تک استعمال کریں۔",
+    "Sirf naak mein, pack par likhe mutabiq, aur sirf label par likhe dinon tak istemal karein.", "सिर्फ़ नाक में, पैक पर लिखे अनुसार, और सिर्फ़ लेबल पर लिखे दिनों तक इस्तेमाल करें।"),
+  h_antifungal: m("Apply a thin layer on clean, dry skin and continue for the full time written on the label.", "صاف، خشک جلد پر پتلی تہہ لگائیں اور لیبل پر لکھے پورے عرصے تک جاری رکھیں۔",
+    "Saaf, khushk jild par patli tah lagayein aur label par likhe poore arse tak jaari rakhein.", "साफ़, सूखी त्वचा पर पतली परत लगाएँ और लेबल पर लिखी पूरी अवधि तक जारी रखें।"),
+  h_antiseptic: m("Wash the area first, then apply as written on the pack.", "پہلے جگہ دھو لیں، پھر پیک پر لکھے مطابق لگائیں۔",
+    "Pehle jagah dho lein, phir pack par likhe mutabiq lagayein.", "पहले जगह धो लें, फिर पैक पर लिखे अनुसार लगाएँ।"),
+  h_gel: m("Rub gently into the painful area on unbroken skin and wash your hands afterwards.", "درد والی جگہ پر سالم جلد پر ہلکے سے ملیں اور بعد میں ہاتھ دھو لیں۔",
+    "Dard wali jagah par sabit jild par halke se malein aur baad mein haath dho lein.", "दर्द वाली जगह पर साबुत त्वचा पर हल्के से मलें और बाद में हाथ धो लें।"),
+  h_spacing: m("Keep the gap between doses written on the pack; never double up.", "دو خوراکوں کے درمیان پیک پر لکھا وقفہ رکھیں؛ کبھی دگنی نہ لیں۔",
+    "Do khuraakon ke darmiyan pack par likha waqfa rakhein; kabhi double na lein.", "दो खुराकों के बीच पैक पर लिखा अंतर रखें; कभी दोगुनी न लें।"),
+  w_paracetamol: m("Do not take more than the maximum on the label, and check that other medicines you take do not also contain paracetamol.", "پیک پر لکھی حد سے زیادہ نہ لیں، اور دیکھ لیں کہ آپ کی دوسری دواؤں میں بھی پیراسیٹامول تو نہیں۔",
+    "Pack par likhi hadd se zyada na lein, aur dekhein ke aap ki dusri dawaiyon mein bhi paracetamol to nahi.", "पैक पर लिखी सीमा से ज़्यादा न लें, और देख लें कि आपकी दूसरी दवाओं में भी पैरासिटामोल तो नहीं।"),
+  w_ibuprofen: m("Not suitable for everyone (e.g. stomach ulcer, asthma, kidney or heart disease); stop if you get stomach pain or black stools.", "ہر کسی کے لیے مناسب نہیں (جیسے پیٹ کا السر، دمہ، گردے یا دل کی بیماری)؛ پیٹ درد یا کالے پاخانے ہوں تو رک جائیں۔",
+    "Har kisi ke liye munasib nahi (jaise pait ka zakhm, dama, gurde ya dil ki bimari); pait dard ya kale pakhane hon to ruk jayein.", "हर किसी के लिए उचित नहीं (जैसे पेट का अल्सर, दमा, गुर्दे या दिल की बीमारी); पेट दर्द या काले मल हों तो रुक जाएँ।"),
+  w_cetirizine: m("It may cause drowsiness; be careful when driving or operating machinery.", "نیند آ سکتی ہے؛ گاڑی چلاتے یا مشین استعمال کرتے وقت احتیاط کریں۔",
+    "Neend aa sakti hai; gaari chalate ya machine istemal karte waqt ehtiyat karein.", "नींद आ सकती है; गाड़ी चलाते या मशीन इस्तेमाल करते समय सावधानी रखें।"),
+  w_alginate: m("Do not use daily for a long time without asking a doctor.", "ڈاکٹر سے پوچھے بغیر لمبے عرصے تک روزانہ استعمال نہ کریں۔",
+    "Doctor se poochhe baghair lambe arse tak roz istemal na karein.", "डॉक्टर से पूछे बिना लंबे समय तक रोज़ इस्तेमाल न करें।"),
+  w_ors: m("If there is blood in the stool, high fever, or you cannot keep fluids down, see a doctor.", "پاخانے میں خون، تیز بخار، یا پانی نہ رکنے پر ڈاکٹر سے ملیں۔",
+    "Pakhane mein khoon, tez bukhar, ya paani na ruknay par doctor se milein.", "मल में खून, तेज़ बुखार, या पानी न रुकने पर डॉक्टर से मिलें।"),
+  w_nasal: m("Long use can make the blockage worse.", "لمبے استعمال سے بند ناک اور بگڑ سکتی ہے۔",
+    "Lambe istemal se band naak aur bigad sakti hai.", "लंबे इस्तेमाल से बंद नाक और बिगड़ सकती है।"),
+  w_antifungal: m("Stop and see a doctor if the skin gets more irritated or does not improve.", "جلد میں جلن بڑھے یا آرام نہ آئے تو رک کر ڈاکٹر سے ملیں۔",
+    "Jild mein jalan barhe ya aram na aaye to ruk kar doctor se milein.", "त्वचा में जलन बढ़े या आराम न मिले तो रुककर डॉक्टर से मिलें।"),
+  w_antiseptic: m("Not for deep or large wounds, and avoid it if you are allergic to iodine.", "گہرے یا بڑے زخم کے لیے نہیں، اور آئیوڈین سے الرجی ہو تو استعمال نہ کریں۔",
+    "Gehre ya bade zakhm ke liye nahi, aur iodine se allergy ho to istemal na karein.", "गहरे या बड़े घाव के लिए नहीं, और आयोडीन से एलर्जी हो तो इस्तेमाल न करें।"),
+  w_gel: m("Do not use on broken skin or near the eyes.", "کٹی پھٹی جلد پر یا آنکھوں کے قریب استعمال نہ کریں۔",
+    "Kati-phati jild par ya aankhon ke qareeb istemal na karein.", "कटी-फटी त्वचा पर या आँखों के पास इस्तेमाल न करें।"),
+  otc_how: m("How to take / use:", "کیسے لیں / استعمال کریں:",
+    "Kaise lein / istemal karein:", "कैसे लें / इस्तेमाल करें:"),
+  otc_stop: m("Stop and get urgent medical help if you get a rash, swelling of the face or lips, or trouble breathing.", "ریش، چہرے یا ہونٹوں پر سوجن، یا سانس میں مشکل ہو تو دوا بند کریں اور فوراً ڈاکٹر کے پاس جائیں۔",
+    "Rash, chehre ya honton par soojan, ya saans mein mushkil ho to dawai band karein aur fori doctor ke paas jayein.", "रैश, चेहरे या होंठों पर सूजन, या साँस में तकलीफ़ हो तो दवा बंद करें और तुरंत डॉक्टर के पास जाएँ।"),
+  dose_draft: m("DRAFT dose: not yet verified by a pharmacist. Do not rely on it.", "مسودہ خوراک: ابھی کسی فارماسسٹ نے تصدیق نہیں کی۔ اس پر بھروسا نہ کریں۔",
+    "DRAFT dose: abhi kisi pharmacist ne tasdeeq nahi ki. Is par bharosa na karein.", "ड्राफ़्ट खुराक: अभी किसी फ़ार्मासिस्ट ने पुष्टि नहीं की। इस पर भरोसा न करें।"),
+  dose_adult: m("Adults (18 or older): {amount} per dose.", "بالغ (18 سال یا زیادہ): فی خوراک {amount}۔",
+    "Balig (18 saal ya zyada): har khuraak {amount}.", "वयस्क (18 साल या ज़्यादा): हर खुराक {amount}।"),
+  dose_gap: m("Leave at least {h} hours between doses.", "دو خوراکوں کے درمیان کم از کم {h} گھنٹے کا وقفہ رکھیں۔",
+    "Do khuraakon ke darmiyan kam az kam {h} ghante ka waqfa rakhein.", "दो खुराकों के बीच कम से कम {h} घंटे का अंतर रखें।"),
+  dose_max: m("Do not take more than {max} in 24 hours, counting every medicine that contains the same ingredient.", "24 گھنٹوں میں {max} سے زیادہ نہ لیں، اور اسی جزو والی ہر دوا کو گنیں۔",
+    "24 ghanton mein {max} se zyada na lein, aur isi juzv wali har dawai ko ginein.", "24 घंटों में {max} से ज़्यादा न लें, और इसी तत्व वाली हर दवा को गिनें।"),
+  dose_days: m("If it has not improved after {d} days, see a doctor.", "اگر {d} دن بعد بھی آرام نہ آئے تو ڈاکٹر سے ملیں۔",
+    "Agar {d} din baad bhi aram na aaye to doctor se milein.", "अगर {d} दिन बाद भी आराम न मिले तो डॉक्टर से मिलें।"),
+  otc_dose_verify: m("Also read the pack label. If it differs from the above, follow the label or ask a pharmacist.", "پیک پر لکھی ہدایات بھی پڑھیں۔ اگر فرق ہو تو لیبل کی پیروی کریں یا فارماسسٹ سے پوچھیں۔",
+    "Pack par likhi hidayat bhi parhein. Farq ho to label ki pairwi karein ya pharmacist se poochhein.", "पैक पर लिखी हिदायत भी पढ़ें। फ़र्क हो तो लेबल का पालन करें या फ़ार्मासिस्ट से पूछें।"),
+  q_feverDays: m("How many days has the fever lasted (for you or the child)?", "بخار کتنے دنوں سے ہے (آپ کو یا بچے کو)؟",
+    "Bukhar kitne dinon se hai (aap ko ya bachche ko)?", "बुखार कितने दिनों से है (आपको या बच्चे को)?"),
+  q_feverPattern: m("At what time of day does the fever come (morning, afternoon, night)? Is it constant or does it come and go? Any chills or sweating?", "بخار دن کے کس وقت آتا ہے (صبح، دوپہر، رات)؟ لگاتار رہتا ہے یا آتا جاتا ہے؟ کپکپی یا پسینہ آتا ہے؟",
+    "Bukhar din ke kis waqt aata hai (subah, dopahar, raat)? Lagataar rehta hai ya aata-jaata hai? Kapkapi ya paseena aata hai?", "बुखार दिन के किस समय आता है (सुबह, दोपहर, रात)? लगातार रहता है या आता-जाता है? कँपकँपी या पसीना आता है?"),
+  q_feverMax: m("What is the highest temperature you measured? Say °C or °F, or write 'not measured'.", "تھرمامیٹر سے سب سے زیادہ کتنا بخار ناپا؟ °C یا °F لکھیں، یا 'نہیں ناپا' لکھیں۔",
+    "Thermometer se sab se zyada kitna bukhar naapa? °C ya °F likhein, ya 'naapa nahi' likhein.", "थर्मामीटर से सबसे ज़्यादा कितना बुखार नापा? °C या °F लिखें, या 'नहीं नापा' लिखें।"),
+  q_weight: m("What is the child's weight in kg?", "بچے کا وزن کتنے کلو ہے؟",
+    "Bachche ka wazan kitne kg hai?", "बच्चे का वज़न कितने किलो है?"),
+  q_childDrinking: m("Is the child drinking or feeding? Write: normal / less / not at all.", "کیا بچہ پانی یا دودھ پی رہا ہے؟ لکھیں: ٹھیک / کم / بالکل نہیں۔",
+    "Kya bachcha paani ya doodh pi raha hai? Likhein: theek / kam / bilkul nahi.", "क्या बच्चा पानी या दूध पी रहा है? लिखें: ठीक / कम / बिल्कुल नहीं।"),
+  q_childUrine: m("Is the child passing urine as usual? Write: normal / less / none.", "کیا بچہ ہمیشہ کی طرح پیشاب کر رہا ہے؟ لکھیں: ٹھیک / کم / بالکل نہیں۔",
+    "Kya bachcha hamesha ki tarah peshab kar raha hai? Likhein: theek / kam / bilkul nahi.", "क्या बच्चा हमेशा की तरह पेशाब कर रहा है? लिखें: ठीक / कम / बिल्कुल नहीं।"),
+  q_childActivity: m("How does the child seem? Write: active / irritable / very sleepy.", "بچہ کیسا لگ رہا ہے؟ لکھیں: چست / چڑچڑا / بہت سست۔",
+    "Bachcha kaisa lag raha hai? Likhein: active / chidchida / bohat sust.", "बच्चा कैसा लग रहा है? लिखें: चुस्त / चिड़चिड़ा / बहुत सुस्त।"),
+  q_painType: m("How would you describe the pain (sharp, dull, burning, throbbing, cramping)?", "درد کیسا ہے (تیز چبھنے والا، بھاری، جلن والا، دھڑکنے والا، مروڑ)؟",
+    "Dard kaisa hai (tez chubhne wala, bhaari, jalan wala, dhadakne wala, marod)?", "दर्द कैसा है (तेज़ चुभने वाला, भारी, जलन वाला, धड़कने वाला, ऐंठन)?"),
+  q_painTrigger: m("What makes it better or worse (movement, food, rest, time of day)?", "کس چیز سے درد کم یا زیادہ ہوتا ہے (حرکت، کھانا، آرام، دن کا وقت)؟",
+    "Kis cheez se dard kam ya zyada hota hai (harkat, khana, aaram, din ka waqt)?", "किस चीज़ से दर्द कम या ज़्यादा होता है (हरकत, खाना, आराम, दिन का समय)?"),
+  infant_fever: m("A baby under 3 months old with a fever needs to see a doctor today. Please go to a doctor or hospital now.", "3 ماہ سے چھوٹے بچے کو بخار ہو تو آج ہی ڈاکٹر کو دکھانا ضروری ہے۔ ابھی ڈاکٹر یا ہسپتال جائیں۔",
+    "3 mahine se chhote bachche ko bukhar ho to aaj hi doctor ko dikhana zaroori hai. Abhi doctor ya hospital jayein.", "3 महीने से छोटे बच्चे को बुखार हो तो आज ही डॉक्टर को दिखाना ज़रूरी है। अभी डॉक्टर या अस्पताल जाएँ।"),
+  dose_child: m("Child (weight {kg} kg): {mg} mg per dose.", "بچہ (وزن {kg} کلو): فی خوراک {mg} ملی گرام۔",
+    "Bachcha (wazan {kg} kg): har khuraak {mg} mg.", "बच्चा (वज़न {kg} किलो): हर खुराक {mg} मि.ग्रा."),
+  dose_child_form: m("Ask a pharmacist how many ml or tablets this is for your product's strength.", "فارماسسٹ سے پوچھیں کہ آپ کی دوا کی طاقت کے حساب سے یہ کتنے ملی لیٹر یا گولیاں ہیں۔",
+    "Pharmacist se poochhein ke aap ki dawai ki taqat ke hisaab se yeh kitne ml ya goliyan hain.", "फ़ार्मासिस्ट से पूछें कि आपकी दवा की ताक़त के हिसाब से यह कितने मि.ली. या गोलियाँ हैं।"),
+  ack: m("I'm here to help. Please describe your health problem (for example: 'I have had a fever for 2 days') to start a consultation.", "میں مدد کے لیے حاضر ہوں۔ مشورہ شروع کرنے کے لیے اپنی صحت کا مسئلہ لکھیں (مثلاً: 'مجھے 2 دن سے بخار ہے')۔",
+    "Main madad ke liye hazir hoon. Mashwara shuru karne ke liye apni sehat ka masla likhein (masalan: 'mujhe 2 din se bukhar hai').", "मैं मदद के लिए हाज़िर हूँ। सलाह शुरू करने के लिए अपनी सेहत की समस्या लिखें (जैसे: 'मुझे 2 दिन से बुखार है')।"),
+};
+                                   
+const t = (lang      , key     , vars                                  = {})         =>
+  Object.entries(vars).reduce((s, [k, v]) => s.replaceAll(`{${k}}`, String(v)), MSG[key][lang]);
+
+exports.LANGS = LANGS;
+exports.normalizeLang = normalizeLang;
+exports.MSG = MSG;
+exports.t = t;
+};
+__mods["knowledge/medications.js"]=function(exports,__req){
+exports.default = {
+ "version": "0.0.4-PLACEHOLDER",
+ "note": "Starter OTC list. NOT pharmacist-reviewed. Brands are market names, not endorsements (output is alphabetical). Pharmacists must verify, extend per country, add validated numeric dosing, and set reviewed=true with a real source before production. No doses are stored or shown. Dosing: adult-only DRAFT values for 3 oral medicines, deliberately conservative. Shown only if dosing.reviewed=true with reviewedBy+source, or OTC_SHOW_DRAFT_DOSES=true (demo). Child dosing is intentionally not supported.",
+ "entries": [
+  {
+   "brands": [],
+   "otc": true,
+   "minAgeYears": null,
+   "pregnancyWarning": true,
+   "dosing": {
+    "adult": {
+     "amount": "500 mg to 1,000 mg",
+     "minGapHours": 6,
+     "max24h": "3,000 mg",
+     "maxDays": 3
+    },
+    "source": "TODO: pharmacist to cite authoritative source",
+    "reviewed": false,
+    "reviewedBy": null,
+    "reviewedAt": null
+   },
+   "contraindications": [],
+   "interactsWith": [],
+   "source": "TODO: pharmacist to cite authoritative source",
+   "reviewed": false,
+   "reviewedAt": null,
+   "generic": "paracetamol",
+   "chemicalName": "acetaminophen (N-acetyl-p-aminophenol)",
+   "class": "analgesic/antipyretic",
+   "match": "fever|bukhar|headache|sar dard|pain|dard|بخار|درد|سر درد|बुखार|दर्द|सिरदर्द",
+   "brandsByCountry": {
+    "PK": [
+     "Calpol",
+     "Panadol"
+    ],
+    "IN": [
+     "Calpol",
+     "Crocin",
+     "Dolo"
+    ]
+   },
+   "allergyKeys": [
+    "paracetamol",
+    "acetaminophen"
+   ],
+   "usesKey": "u_fever_pain",
+   "howKeys": [
+    "h_water",
+    "h_any_time",
+    "h_spacing"
+   ],
+   "warnKey": "w_paracetamol"
+  },
+  {
+   "brands": [],
+   "otc": true,
+   "minAgeYears": null,
+   "pregnancyWarning": true,
+   "dosing": {
+    "adult": {
+     "amount": "200 mg to 400 mg",
+     "minGapHours": 6,
+     "max24h": "1,200 mg",
+     "maxDays": 3
+    },
+    "source": "TODO: pharmacist to cite authoritative source",
+    "reviewed": false,
+    "reviewedBy": null,
+    "reviewedAt": null
+   },
+   "contraindications": [],
+   "interactsWith": [],
+   "source": "TODO: pharmacist to cite authoritative source",
+   "reviewed": false,
+   "reviewedAt": null,
+   "generic": "ibuprofen",
+   "chemicalName": "ibuprofen",
+   "class": "NSAID",
+   "match": "muscle|joint|body ache|body pain|badan dard|toothache|dant dard|period pain|عضلات|جوڑ|بدن درد|दांत|जोड़|बदन दर्द|मांसपेशी",
+   "brandsByCountry": {
+    "PK": [
+     "Brufen"
+    ],
+    "IN": [
+     "Brufen",
+     "Ibugesic"
+    ]
+   },
+   "allergyKeys": [
+    "ibuprofen",
+    "aspirin",
+    "nsaid",
+    "diclofenac"
+   ],
+   "usesKey": "u_pain_inflam",
+   "howKeys": [
+    "h_water",
+    "h_after_food",
+    "h_spacing"
+   ],
+   "warnKey": "w_ibuprofen"
+  },
+  {
+   "brands": [],
+   "otc": true,
+   "minAgeYears": null,
+   "pregnancyWarning": true,
+   "dosing": {
+    "adult": {
+     "amount": "10 mg",
+     "minGapHours": 24,
+     "max24h": "10 mg",
+     "maxDays": null
+    },
+    "source": "TODO: pharmacist to cite authoritative source",
+    "reviewed": false,
+    "reviewedBy": null,
+    "reviewedAt": null
+   },
+   "contraindications": [],
+   "interactsWith": [],
+   "source": "TODO: pharmacist to cite authoritative source",
+   "reviewed": false,
+   "reviewedAt": null,
+   "generic": "cetirizine",
+   "chemicalName": "cetirizine hydrochloride",
+   "class": "antihistamine",
+   "match": "allerg|sneez|runny nose|itch|kharish|chheenk|naak beh|الرجی|چھینک|خارش|एलर्जी|छींक|खुजली",
+   "brandsByCountry": {
+    "PK": [],
+    "IN": [
+     "Cetzine",
+     "Okacet"
+    ]
+   },
+   "allergyKeys": [
+    "cetirizine",
+    "hydroxyzine"
+   ],
+   "usesKey": "u_allergy",
+   "howKeys": [
+    "h_water",
+    "h_evening"
+   ],
+   "warnKey": "w_cetirizine"
+  },
+  {
+   "brands": [],
+   "otc": true,
+   "minAgeYears": null,
+   "pregnancyWarning": true,
+   "dosing": null,
+   "contraindications": [],
+   "interactsWith": [],
+   "source": "TODO: pharmacist to cite authoritative source",
+   "reviewed": false,
+   "reviewedAt": null,
+   "generic": "sodium alginate antacid",
+   "chemicalName": "sodium alginate-based antacid",
+   "class": "antacid/alginate",
+   "match": "acidity|heartburn|reflux|khatti|تیزابیت|ایسیڈیٹی|एसिडिटी|खट्टी",
+   "brandsByCountry": {
+    "PK": [
+     "Gaviscon"
+    ],
+    "IN": [
+     "Gaviscon"
+    ]
+   },
+   "allergyKeys": [],
+   "usesKey": "u_acidity",
+   "howKeys": [
+    "h_after_meals_bed"
+   ],
+   "warnKey": "w_alginate"
+  },
+  {
+   "brands": [],
+   "otc": true,
+   "minAgeYears": null,
+   "pregnancyWarning": true,
+   "dosing": null,
+   "contraindications": [],
+   "interactsWith": [],
+   "source": "TODO: pharmacist to cite authoritative source",
+   "reviewed": false,
+   "reviewedAt": null,
+   "generic": "oral rehydration salts (ORS)",
+   "chemicalName": "glucose + electrolyte salts",
+   "class": "rehydration",
+   "match": "diarrh|dast|loose motion|dehydrat|اسہال|دست|پانی کی کمی|दस्त|पानी की कमी",
+   "brandsByCountry": {
+    "PK": [],
+    "IN": [
+     "Electral"
+    ]
+   },
+   "allergyKeys": [],
+   "usesKey": "u_dehydration",
+   "howKeys": [
+    "h_ors"
+   ],
+   "warnKey": "w_ors"
+  },
+  {
+   "brands": [],
+   "otc": true,
+   "minAgeYears": null,
+   "pregnancyWarning": true,
+   "dosing": null,
+   "contraindications": [],
+   "interactsWith": [],
+   "source": "TODO: pharmacist to cite authoritative source",
+   "reviewed": false,
+   "reviewedAt": null,
+   "generic": "xylometazoline",
+   "chemicalName": "xylometazoline hydrochloride",
+   "class": "nasal decongestant",
+   "match": "blocked nose|nasal congestion|stuffy|naak band|ناک بند|नाक बंद",
+   "brandsByCountry": {
+    "PK": [
+     "Otrivin"
+    ],
+    "IN": [
+     "Otrivin"
+    ]
+   },
+   "allergyKeys": [
+    "xylometazoline"
+   ],
+   "usesKey": "u_congestion",
+   "howKeys": [
+    "h_nasal"
+   ],
+   "warnKey": "w_nasal"
+  },
+  {
+   "brands": [],
+   "otc": true,
+   "minAgeYears": null,
+   "pregnancyWarning": true,
+   "dosing": null,
+   "contraindications": [],
+   "interactsWith": [],
+   "source": "TODO: pharmacist to cite authoritative source",
+   "reviewed": false,
+   "reviewedAt": null,
+   "generic": "clotrimazole",
+   "chemicalName": "clotrimazole (topical)",
+   "class": "antifungal",
+   "match": "fungal|ringworm|dad|داد|فنگل|दाद|फंगल",
+   "brandsByCountry": {
+    "PK": [
+     "Canesten"
+    ],
+    "IN": [
+     "Candid",
+     "Canesten"
+    ]
+   },
+   "allergyKeys": [
+    "clotrimazole",
+    "imidazole"
+   ],
+   "usesKey": "u_fungal",
+   "howKeys": [
+    "h_antifungal"
+   ],
+   "warnKey": "w_antifungal"
+  },
+  {
+   "brands": [],
+   "otc": true,
+   "minAgeYears": null,
+   "pregnancyWarning": true,
+   "dosing": null,
+   "contraindications": [],
+   "interactsWith": [],
+   "source": "TODO: pharmacist to cite authoritative source",
+   "reviewed": false,
+   "reviewedAt": null,
+   "generic": "povidone-iodine",
+   "chemicalName": "povidone-iodine (topical)",
+   "class": "antiseptic",
+   "match": "\\bcut\\b|wound|scrape|graze|zakhm|زخم|घाव|ज़ख्म",
+   "brandsByCountry": {
+    "PK": [
+     "Betadine"
+    ],
+    "IN": [
+     "Betadine"
+    ]
+   },
+   "allergyKeys": [
+    "iodine",
+    "povidone"
+   ],
+   "usesKey": "u_wound",
+   "howKeys": [
+    "h_antiseptic"
+   ],
+   "warnKey": "w_antiseptic"
+  },
+  {
+   "brands": [],
+   "otc": true,
+   "minAgeYears": null,
+   "pregnancyWarning": true,
+   "dosing": null,
+   "contraindications": [],
+   "interactsWith": [],
+   "source": "TODO: pharmacist to cite authoritative source",
+   "reviewed": false,
+   "reviewedAt": null,
+   "generic": "diclofenac gel",
+   "chemicalName": "diclofenac (topical gel)",
+   "class": "topical NSAID",
+   "match": "muscle|joint|sprain|back pain|kamar dard|عضلات|جوڑ|کمر درد|मांसपेशी|जोड़|कमर दर्द|मोच",
+   "brandsByCountry": {
+    "PK": [
+     "Voltaren"
+    ],
+    "IN": [
+     "Voltaren",
+     "Voveran"
+    ]
+   },
+   "allergyKeys": [
+    "diclofenac",
+    "aspirin",
+    "ibuprofen",
+    "nsaid"
+   ],
+   "usesKey": "u_muscle_gel",
+   "howKeys": [
+    "h_gel"
+   ],
+   "warnKey": "w_gel"
+  }
+ ]
+};
+
+};
+__mods["knowledge/referrals.js"]=function(exports,__req){
+exports.default = {"version":"0.0.1-PLACEHOLDER","reviewed":false,
+"note":"Starter keyword->specialty and symptom->test mapping. NOT clinically reviewed. Clinicians must review, extend (e.g. gynecology, nephrology) and sign off before real use. Tests are suggestions for a doctor to decide, never orders.",
+"specialties":[
+{"id":"cardiology","match":"heart|palpitat|chest|seene|dil |دل|سینے|धड़कन|सीने|दिल","names":{"en":"Cardiology (heart)","ur-roman":"Cardiology (dil ka doctor)","ur":"کارڈیالوجی (دل کے ماہر)","hi":"कार्डियोलॉजी (हृदय रोग विशेषज्ञ)"}},
+{"id":"dermatology","match":"skin|rash|itch|kharish|daane|جلد|خارش|دانے|त्वचा|खुजली|दाने","names":{"en":"Dermatology (skin)","ur-roman":"Dermatology (jild ka doctor)","ur":"ڈرمیٹولوجی (جلد کے ماہر)","hi":"डर्मेटोलॉजी (त्वचा रोग विशेषज्ञ)"}},
+{"id":"gastro","match":"stomach|abdom|vomit|nausea|diarrh|constipat|pet |ulti|dast|معدہ|پیٹ|الٹی|دست|पेट|उल्टी|दस्त","names":{"en":"Gastroenterology (stomach and gut)","ur-roman":"Gastroenterology (pet ka doctor)","ur":"گیسٹرو اینٹرولوجی (پیٹ کے ماہر)","hi":"गैस्ट्रोएंटरोलॉजी (पेट रोग विशेषज्ञ)"}},
+{"id":"neurology","match":"headache|migraine|numb|dizz|seizure|sar dard|sar mein|chakkar|سر درد|چکر|सिरदर्द|सिर दर्द|चक्कर|सुन्न","names":{"en":"Neurology (brain and nerves)","ur-roman":"Neurology (dimaagh aur asaab ka doctor)","ur":"نیورولوجی (دماغ اور اعصاب کے ماہر)","hi":"न्यूरोलॉजी (मस्तिष्क व नसों के विशेषज्ञ)"}},
+{"id":"ent","match":"earache|ear pain|throat|nose|sinus|kaan|gala|naak|کان|گلا|ناک|कान|गला|नाक","names":{"en":"ENT (ear, nose, throat)","ur-roman":"ENT (kaan, naak, gala)","ur":"ای این ٹی (کان، ناک، گلا)","hi":"ईएनटी (कान, नाक, गला)"}},
+{"id":"eye","match":"eye|vision|aankh|nazar|آنکھ|نظر|आँख|आंख|नज़र","names":{"en":"Ophthalmology (eyes)","ur-roman":"Ophthalmology (aankh ka doctor)","ur":"آنکھوں کے ماہر (آفتھیلمولوجی)","hi":"नेत्र रोग विशेषज्ञ (ऑप्थल्मोलॉजी)"}},
+{"id":"urology","match":"urine|urinat|peshab|پیشاب|पेशाब","names":{"en":"Urology (urinary system)","ur-roman":"Urology (peshab ka nizam)","ur":"یورولوجی (پیشاب کے نظام کے ماہر)","hi":"यूरोलॉजी (मूत्र रोग विशेषज्ञ)"}},
+{"id":"mental","match":"anxiety|depress|panic|stress|udaas|ghabrahat|پریشانی|اداس|گھبراہٹ|चिंता|उदास|घबराहट|तनाव","names":{"en":"Mental health services (psychiatry/psychology)","ur-roman":"Zehni sehat ki khidmaat (psychiatry)","ur":"ذہنی صحت کی خدمات (سائیکاٹری)","hi":"मानसिक स्वास्थ्य सेवाएँ (मनोचिकित्सा)"}}],
+"tests":[
+{"match":"fever|bukhar|بخار|बुखार","items":[
+{"tier":"likely","names":{"en":"Complete blood count (CBC)","ur-roman":"CBC (khoon ka mukammal test)","ur":"سی بی سی (خون کا مکمل ٹیسٹ)","hi":"सीबीसी (खून की पूरी जाँच)"}},
+{"tier":"possible","names":{"en":"Urine routine exam","ur-roman":"Urine R/E (peshab ka test)","ur":"پیشاب کا معمول کا ٹیسٹ","hi":"पेशाब की सामान्य जाँच"}}]},
+{"match":"stomach|abdom|vomit|nausea|diarrh|constipat|pet |ulti|dast|معدہ|پیٹ|الٹی|دست|पेट|उल्टी|दस्त","items":[
+{"tier":"possible","names":{"en":"Stool routine exam","ur-roman":"Stool R/E (pakhane ka test)","ur":"پاخانے کا معمول کا ٹیسٹ","hi":"मल की सामान्य जाँच"}},
+{"tier":"possible","names":{"en":"Abdominal ultrasound","ur-roman":"Pet ka ultrasound","ur":"پیٹ کا الٹراساؤنڈ","hi":"पेट का अल्ट्रासाउंड"}}]},
+{"match":"heart|palpitat|chest|seene|dil |دل|سینے|धड़कन|सीने|दिल","items":[
+{"tier":"likely","names":{"en":"ECG (heart tracing)","ur-roman":"ECG (dil ki tracing)","ur":"ای سی جی (دل کی ٹریسنگ)","hi":"ईसीजी (दिल की जाँच)"}}]},
+{"match":"urine|urinat|peshab|پیشاب|पेशाब","items":[
+{"tier":"likely","names":{"en":"Urine routine exam","ur-roman":"Urine R/E (peshab ka test)","ur":"پیشاب کا معمول کا ٹیسٹ","hi":"पेशाब की सामान्य जाँच"}},
+{"tier":"possible","names":{"en":"Kidney and bladder ultrasound","ur-roman":"Gurde aur masane ka ultrasound","ur":"گردوں اور مثانے کا الٹراساؤنڈ","hi":"गुर्दे और मूत्राशय का अल्ट्रासाउंड"}}]}]}
+;
+
+};
+const { startConsult, answerConsult } = __req("src/consultation/flow.js");
 document.getElementById('demo').hidden=false;let sid=null,tok=null;const log=document.getElementById('log');
 const UI={en:{send:'Send',ph:'Describe your problem...',fq:'Follow-up: how is your problem since last time?',fl:['Better','Same','Worse','New symptoms']},
 'ur-roman':{send:'Bhejein',ph:'Apni takleef likhein...',fq:'Follow-up: pichli baar ke baad takleef kaisi hai?',fl:['Behtar','Waisi hi','Zyada','Naye symptoms']},
